@@ -132,12 +132,14 @@ const RUNE2D = (() => {
     return out;
   }
   // a spike: ray outline j along direction d, its width facing the camera (the mark's 12 are exact when face-on)
-  function spikeShape(ctx, d, rr, len, ws, j) {
+  function spikeShape(ctx, d, rr, len, ws, j, tp = 1) {
     const ray = RAYS[j], p0 = P(v3.sc(d, rr)), p1 = P(v3.sc(d, rr + len)); if (!p0 || !p1) return;
     let sx = p1[0] - p0[0], sy = p1[1] - p0[1]; const l = Math.hypot(sx, sy), shaft = ws * ray.half * FPX / p0[2];
     if (l < shaft * 1.6) { ctx.moveTo(p0[0] + shaft, p0[1]); ctx.arc(p0[0], p0[1], shaft, 0, TAU); return; }   // end-on: its round end
     sx /= l; sy /= l; const lx = sy, ly = -sx, k = len / ray.len; let first = true;
-    for (const [u, v] of ray.pts) { const c = P(v3.sc(d, u < .2 ? rr * Math.max(0, u) / .2 : rr + (u - .2) * k)); if (!c) continue; const sc = ws * FPX / Math.max(c[2], p0[2]);
+    const taper = j >= 12 ? tp : 0;   // on the body the spikes thin toward the head (the mark's rays only as they turn: face-on they're the logo)
+    for (const [u, v] of ray.pts) { const c = P(v3.sc(d, u < .2 ? rr * Math.max(0, u) / .2 : rr + (u - .2) * k)); if (!c) continue;
+      const sc = ws * FPX / Math.max(c[2], p0[2]) * (1 + taper * (.15 - .6 * clamp((u - .2) / ray.len)));
       const x = c[0] + lx * v * sc, y = c[1] + ly * v * sc; if (first) { ctx.moveTo(x, y); first = false; } else ctx.lineTo(x, y); }
     ctx.closePath();
   }
@@ -151,17 +153,39 @@ const RUNE2D = (() => {
     return o;
   }
 
-  const I = mkCanvas(), IC = I.getContext('2d'), Wc = mkCanvas(), WC = Wc.getContext('2d'), Sc = mkCanvas(), SC = Sc.getContext('2d'), Bc = mkCanvas(), BC = Bc.getContext('2d');
+  const Tb = mkCanvas(), TC = Tb.getContext('2d'), I = mkCanvas(), IC = I.getContext('2d'), Wc = mkCanvas(), WC = Wc.getContext('2d'), Sc = mkCanvas(), SC = Sc.getContext('2d'), Bc = mkCanvas(), BC = Bc.getContext('2d');
   const reset = c => { c.setTransform(1, 0, 0, 1, 0, 0); c.globalAlpha = 1; c.globalCompositeOperation = 'source-over'; c.filter = 'none'; };
+
+  // passing through a hole: its side wall is a short tube round us (nothing else draws it from there); quads far→near
+  function tubeWall(ctx, st, rr) {
+    const i = st.tube, n = 64, o = holeWorld(holes[i], i, rr, st, 'none', n), w = holeWorld(holes[i], i, rr * .93, st, 'none', n), qs = [];
+    for (let k = 0; k < n; k++) { const q = [o[k], o[(k + 1) % n], w[(k + 1) % n], w[k]], m = q.reduce((a, b) => v3.add(a, b), [0, 0, 0]);
+      qs.push([v3.len(v3.sub(v3.sc(m, .25), cam.pos)), q]); }
+    qs.sort((a, b) => b[0] - a[0]); reset(ctx); ctx.fillStyle = WALL; ctx.strokeStyle = WALL; ctx.lineWidth = 1.5;
+    for (const [, q] of qs) { const pts = polyW(q); if (pts.length < 3) continue; ctx.beginPath(); poly(ctx, pts); ctx.fill(); ctx.stroke(); }
+  }
 
   // st: { t, cam: {q, pos}, cx, cy, rb, open[], slit[], loud, vox, wob, spec, specMean, scopeV, bodyScope, urchin, teeth,
   //       toothScale, boost, mark: { grow, sink[12], rayAmp }, hs, inner, rimScope, warm }
   function draw(ctx, st, hooks) {
     cam = { q: st.cam.q, pos: st.cam.pos, cx: st.cx, cy: st.cy };
     D = v3.len(cam.pos); qa = qAlign(v3.sc(cam.pos, 1 / D), [0, 0, 1]); qai = qConj(qa);
-    const rr = st.rb, inside = D <= rr * 1.02, z0 = rr * rr / D;
+    const rr = st.rb, inside = D <= rr, z0 = rr * rr / D;
     const axes = { right: qRot(qConj(cam.q), [1, 0, 0]), up: qRot(qConj(cam.q), [0, 1, 0]) };
-    const c0 = P([0, 0, 0]);
+    const c0 = P([0, 0, 0]); let tubeK = 0;
+    // IN the hole's tube (within the shell's thickness, inside its aperture): ahead is only the world outside, round us its
+    // wall. Neither the inside view (its window wraps round the lens) nor the outside one (its limb does) holds here.
+    if (st.tube != null && D > rr * .93 && D < rr * 1.06) { const h = holes[st.tube], dn = v3.sc(cam.pos, 1 / D);
+      const th = Math.atan2(v3.dot(dn, h.e2), v3.dot(dn, h.e1)), ap = holeRho(h, st.tube, th, st) * (.5 + .5 * st.open[st.tube]);
+      if (ang(dn, h.c) < ap * .98) {
+        // eased in over the first stretch of the shell's thickness (the interior's last sliver and glow fade, not snap)
+        const k = clamp((D - rr * .93) / (rr * .025)), tc = k < 1 ? TC : ctx;
+        reset(tc); tc.fillStyle = PAPER; tc.fillRect(0, 0, W, H); if (st.bg) st.bg(tc);
+        if (hooks && hooks.outside) { hooks.outside(tc, { plane: (c, e1, e2, unit) => plane(tc, c, e1, e2, unit), P, axes, rr, inside: false, Dc: D }); reset(tc); }
+        tubeWall(tc, st, rr);
+        if (k >= 1) { lastInfo = { inside: false, c0, limbPx: 0, D, axes, tube: true }; return []; }
+        tubeK = k;
+      } }
     const anyOpen = st.open.some(o => o > 0) || st.slit.some(o => o > 0);
     // ── spikes: own rise/sink cycle × the radial spectrum at their screen angle × clearance from open holes
     const openH = holes.map((h, i) => Math.max(st.open[i], st.slit[i] * .12)), front = [], back = [];
@@ -180,12 +204,14 @@ const RUNE2D = (() => {
       if (sp.kind === 'mark') len = sp.L * st.mark.grow * (1 - st.mark.sink[sp.j]) * clamp(1 + st.mark.rayAmp * (ringAt(st.spec, MARK_A[sp.j]) - st.specMean), .1, 2.3) * clear;
       else len = sp.L * amt * clear * Math.pow(life, .7) * clamp(.3 + 1.5 * ringAt(st.spec, sa), .06, 2.2) * (sp.kind === 'urchin' ? 1 : st.toothScale) * (st.boost ? st.boost(sa) : 1);
       if (len < .01) return;
-      (toA(d)[2] * rr < z0 ? back : front).push([d, len, sp.kind === 'mark' ? Math.pow(st.mark.grow, .4) : sp.w * Math.min(.9, .3 + len / .9), sp.j]);
+      // the mark's rays keep the logo's own junction only face-on (where it's exact); turned, its flat width would flap out past the
+      // body's edge, so they stand on buried roots like every other spike. Short spikes are needles, thickening as they grow.
+      (toA(d)[2] * rr < z0 ? back : front).push([d, len, sp.kind === 'mark' ? Math.pow(st.mark.grow, .4) : sp.w * Math.min(.9, .2 + len / .5), sp.kind === 'mark' && markTilt > .02 ? sp.j + 12 : sp.j, sp.kind === 'mark' ? markTilt : 1]);
     });
     // ── 1. paper; the outside text; 2. back spikes
     reset(ctx); ctx.fillStyle = PAPER; ctx.fillRect(0, 0, W, H); if (st.bg) st.bg(ctx);
     if (hooks && hooks.outside) { hooks.outside(ctx, { plane: (c, e1, e2, unit) => plane(ctx, c, e1, e2, unit), P, axes, rr, inside, Dc: D }); reset(ctx); }
-    for (const [d, len, w, j] of back) { ctx.fillStyle = dbgFill('back', j); ctx.beginPath(); spikeShape(ctx, d, rr, len, w, j); ctx.fill(); }
+    for (const [d, len, w, j, tp] of back) { ctx.fillStyle = dbgFill('back', j); ctx.beginPath(); spikeShape(ctx, d, rr, len, w, j, tp); ctx.fill(); }
     const limb = inside ? null : polyW(limbWorld(rr, st));
     // ── 3. the interior (only once something has opened: before that there's nothing to see in, and no seam to leave)
     const seen = [];
@@ -244,6 +270,7 @@ const RUNE2D = (() => {
       if (st.warm > .005) { IC.globalCompositeOperation = 'lighter'; IC.globalAlpha = Math.min(.55, st.warm); IC.fillStyle = '#C8501F'; IC.fillRect(0, 0, W, H); IC.globalAlpha = 1; IC.globalCompositeOperation = 'source-over'; }
       IC.restore();
       ctx.drawImage(I, 0, 0);
+      if (inside && st.tube != null && D > rr * .85) tubeWall(ctx, st, rr);
     }
     if (!inside && limb && limb.length > 2) {
       // ── 4. the holes' inner walls (the shell's thickness), under 5. the front shell with its holes cut out
@@ -261,9 +288,10 @@ const RUNE2D = (() => {
       ctx.drawImage(Sc, 0, 0);
       // ── 6. front spikes
       ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, H); poly(ctx, limb); ctx.clip('evenodd');
-      for (const [d, len, w, j] of front) { ctx.fillStyle = dbgFill('front', j); ctx.beginPath(); spikeShape(ctx, d, rr, len, w, j); ctx.fill(); }
+      for (const [d, len, w, j, tp] of front) { ctx.fillStyle = dbgFill('front', j); ctx.beginPath(); spikeShape(ctx, d, rr, len, w, j, tp); ctx.fill(); }
       ctx.restore();
     }
+    if (tubeK > 0) { reset(ctx); ctx.globalAlpha = tubeK; ctx.drawImage(Tb, 0, 0); reset(ctx); }
     let limbPx = 0; if (limb && c0 && limb.length) limbPx = limb.reduce((m, p) => Math.max(m, Math.hypot(p[0] - c0[0], p[1] - c0[1])), 0) * .97;
     lastInfo = { inside, c0, limbPx, D, axes };
     return seen;

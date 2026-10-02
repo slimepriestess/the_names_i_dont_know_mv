@@ -125,13 +125,22 @@ const FILM = (() => {
     const CP = [at(0, .78, 0), at(.16 * Math.PI, .72, zx * .1), at(.42 * Math.PI, .68, zx * .25), at(.72 * Math.PI, .68, zx * .45), at(px - .32 * Math.PI, .7, zx * .7),
       at(px - .13 * Math.PI, .85, zx * .9), cx, at(px + .1 * Math.PI, 1.3, zx * 1.1), at(px + .22 * Math.PI, 1.7, zx * 1.3), at(px + .38 * Math.PI, 2.7, zx * 1.6 + .2), at(px + .5 * Math.PI, 4.5, zx * 1.6 + .6)];
     const cr = (p0, p1, p2, p3, u) => [0, 1, 2].map(k => .5 * (2 * p1[k] + (-p0[k] + p2[k]) * u + (2 * p0[k] - 5 * p1[k] + 4 * p2[k] - p3[k]) * u * u + (-p0[k] + 3 * p1[k] - 3 * p2[k] + p3[k]) * u * u * u));
-    const pts = [], exitIdx = 6 * 40;
-    for (let k = 0; k < CP.length - 1; k++) for (let j = 0; j < 40; j++) pts.push(cr(CP[Math.max(0, k - 1)], CP[k], CP[k + 1], CP[Math.min(CP.length - 1, k + 2)], j / 40));
-    pts.push(CP[CP.length - 1]);
+    // the curve itself is evaluated at every frame (a polyline through samples bent at each one: near text and the wall
+    // magnified those bends into shake, Ra draft 6); the dense samples only map arc length → the curve's parameter g
+    const NS = 200, crAt = g => { const k = Math.min(CP.length - 2, Math.floor(g)), u = g - k; return cr(CP[Math.max(0, k - 1)], CP[k], CP[k + 1], CP[Math.min(CP.length - 1, k + 2)], u); };
+    const pts = [], G_ = [], exitIdx = 6 * NS;
+    for (let k = 0; k < CP.length - 1; k++) for (let j = 0; j < NS; j++) { G_.push(k + j / NS); pts.push(crAt(k + j / NS)); }
+    G_.push(CP.length - 1); pts.push(CP[CP.length - 1]);
     const S = [0]; for (let k = 1; k < pts.length; k++) S.push(S[k - 1] + v3.len(v3.sub(pts[k], pts[k - 1])));
     const t0 = 142.6, tx = T.loveEnd, t1 = 184, sx = S[exitIdx], sEnd = S[S.length - 1], v_e = 1.8 * sx / (tx - t0), Rr = sEnd - sx, p = Math.max(1.05, v_e * (t1 - tx) / Rr);
-    const sOf = t => t <= tx ? sx * Math.pow(clamp((t - t0) / (tx - t0)), 1.8) : sx + Rr * (1 - Math.pow(1 - clamp((t - tx) / (t1 - tx)), p));
-    const posAt = s => { let i = 1; while (i < S.length - 1 && S[i] < s) i++; const k = clamp((s - S[i - 1]) / (S[i] - S[i - 1] || 1)); return [v3.lerp(pts[i - 1], pts[i], k), v3.norm(v3.sub(pts[Math.min(pts.length - 1, i + 2)], pts[Math.max(0, i - 2)]))]; };
+    const sRaw = t => t <= tx ? sx * Math.pow(clamp((t - t0) / (tx - t0)), 1.8) : sx + Rr * (1 - Math.pow(1 - clamp((t - tx) / (t1 - tx)), p));
+    // the two halves met at the exit with a 3.8x speed jump (the lurch through the shell): a Hermite blend over 2.5 s
+    // that keeps both ends' positions and speeds, so everything outside the window keeps its timing
+    const wa = tx - 1.5, wb = tx + 1, dR = t => (sRaw(t + 1e-3) - sRaw(t - 1e-3)) / 2e-3, sa = sRaw(wa), sb = sRaw(wb), va = dR(wa), vb = dR(wb), hw = wb - wa;
+    const sOf = t => { if (t <= wa || t >= wb) return sRaw(t); const x = (t - wa) / hw, x2 = x * x, x3 = x2 * x;
+      return (2 * x3 - 3 * x2 + 1) * sa + (x3 - 2 * x2 + x) * hw * va + (-2 * x3 + 3 * x2) * sb + (x3 - x2) * hw * vb; };
+    const posAt = s => { let lo = 1, hi = S.length - 1; while (lo < hi) { const m = (lo + hi) >> 1; if (S[m] < s) lo = m + 1; else hi = m; }
+      const i = lo, k = clamp((s - S[i - 1]) / (S[i] - S[i - 1] || 1)); return [crAt(lerp(G_[i - 1], G_[i], k)), null]; };
     const qIn = qLook(c1, RE(g1) + .04), endPos = CP[CP.length - 1], endDir = v3.norm(endPos);
     const qEnd = qFrom(v3.sc(endDir, -1), n);
     // the heading: where the path is GOING over the next/last ~half second, from continuous positions (the sampled chord
@@ -144,7 +153,9 @@ const FILM = (() => {
       const q = qFrom(v3.norm(v3.add(v3.sc(tan, wT), v3.sc(toC, 1 - wT))), n);
       return { q: qSlerp(qIn, q, ease(clamp((t - t0) / 4.5))), pos };
     };
-    return { t0, t1, tx, pose, qIn, end: { q: qEnd, pos: endPos }, endDir };
+    // the moment we actually pass through the shell (the speed blend moved it off tx): the light keys to this
+    let lo = tx - 4, hi = tx + 2; for (let k = 0; k < 40; k++) { const m = (lo + hi) / 2; if (v3.len(at_(m)) < 1) lo = m; else hi = m; }
+    return { t0, t1, tx, tc: lo, pose, qIn, end: { q: qEnd, pos: endPos }, endDir };
   }
 
   // the opening: the song's energy pushes it from the icon to the open rune
@@ -188,6 +199,23 @@ const FILM = (() => {
     B.stroke(); if (rev < 1) { B.beginPath(); B.arc(hx, hy, lw * 1.6, 0, TAU); B.fillStyle = HOT; B.fill(); }
   }
   const win = (t, a, b, fi = .4, fo = .5) => clamp((t - a) / fi) * (1 - clamp((t - b) / fo));
+  // the rose's plane: fixed in the object (it turns with it) but rolled so it stands upright when we see it best, at 1:32
+  let ROSE_UP = null;
+  const roseUp = () => { if (ROSE_UP) return ROSE_UP; const c = holes[g0].c, r = qRot(qConj(camFull(92).q), [1, 0, 0]);
+    const e1 = v3.norm(v3.sub(r, v3.sc(c, v3.dot(r, c)))); return (ROSE_UP = [e1, v3.cross(c, e1)]); };
+  const ASCII_ROSE = [
+    "       _,--._        ",
+    "     ,' ,-.  `.      ",
+    "    / ,'  `\\  \\     ",
+    "   |  |  @  |  |     ",
+    "    \\  `.__,' /      ",
+    "     `._   _,'       ",
+    "        `|'    __    ",
+    "   .--.  |  ,-'  )   ",
+    "  (    `-|-'  _.'    ",
+    "   `-.._ | _.-'      ",
+    "         |           ",
+    "         |           "];
   function block(lines, x, y, s, t, a, b, col, o = {}) {
     const n = lines.length, lh = (o.lh || .2) * s; let px = (o.px || .12) * s;
     for (const l of lines) px = Math.min(px, fitPx(l, (o.w || 1.6) * s, px, o.font, o.it));
@@ -378,11 +406,15 @@ const FILM = (() => {
       });
     }
     // ── the traces in their holes (planes inside the object, so they turn with it), each over its token stream
-    const trace = (i, t0, fn, unitK = 1) => { if (inside || !seen.has(i) || t < t0) return; const a = shrinkFade;
-      const u = api.holeUnit(i, .1) * unitK;
-      inPlane(() => api.holePlane(i, .34, u * 1.35), () => { B.globalAlpha = clamp((t - t0) / .6) * .5 * a; fn('deep'); });
-      inPlane(() => api.holePlane(i, .1, u), () => { B.globalAlpha = clamp((t - t0) / .4) * (t > t0 + 10 ? .7 : 1) * a; fn('text'); });
+    const trace = (i, t0, fn, unitK = 1, up = null) => { if (inside || !seen.has(i) || t < t0) return; const a = shrinkFade;
+      const u = api.holeUnit(i, .1) * unitK, pl = (dp, uu) => up ? api.plane(v3.sc(holes[i].c, api.rr * (1 - dp)), up[0], up[1], uu) : api.holePlane(i, dp, uu);
+      inPlane(() => pl(.34, u * 1.35), () => { B.globalAlpha = clamp((t - t0) / .6) * .5 * a; fn('deep'); });
+      inPlane(() => pl(.1, u), () => { B.globalAlpha = clamp((t - t0) / .4) * (t > t0 + 10 ? .7 : 1) * a; fn('text'); });
       B.globalAlpha = 1; };
+    // giant 0, after we've left it: someone's ASCII rose, the kind people signed posts with (Ra, draft 6: the big hole wants a feature)
+    trace(g0, T.tru + 3, L => { if (L === 'deep') return;
+      const px = block(ASCII_ROSE, 0, -.12 * s, s, t, T.tru + 3, T.tru + 6.5, ORG, { px: .1, lh: .13, w: 1.15, font: 'Menlo' });
+      btext('@}->--  for whoever finds this', 0, .66 * s, px * .95, VIO, (t - T.tru - 7) / 1.2, { font: 'Georgia', it: true, align: 'center' }); }, 1.6, roseUp());
     trace(pick.sailor, T.sailor - .3, L => { if (L === 'deep') return idStream(TEXTS.sailor, 0, -.3 * s, s, t, T.sailor);
       block(TEXTS.sailor, 0, 0, s, t, T.sailor, T.grammar, VIO, { px: .16, lh: .3, w: 1.8 });
       B.font = `${.16 * s}px Menlo`; const words = TEXTS.sailor[0].split(' '), cen = []; let cx = -.9 * s; words.forEach(w => { const ww = B.measureText(w + ' ').width; cen.push(cx + ww / 2); cx += ww; });
@@ -487,7 +519,7 @@ const FILM = (() => {
     const rb = (t < T.open ? rbOpen * (1 + .035 * bp * clamp((p - .25) * 3)) : kf(t, [[T.open, 1], [T.gn, 1], [236, .3], [239.4, .2]], easeInOut) * (1 + (.02 * loud + .012 * bp) * (1 - clamp((t - 232) / 4))));
     const st = {
       t, cam: c, cx: W / 2, cy: H / 2, rb, open, slit, loud, vox,
-      window: i => i === pick.exit ? kf(t, [[FLIGHT.tx - 4, 0], [FLIGHT.tx - .4, 1]], ease) : 0,   // the way out shows the real white beyond it (Ra: the white-out from the backdrop)
+      window: i => i === pick.exit ? kf(t, [[FLIGHT.tc - 4, 0], [FLIGHT.tc - .6, 1]], ease) : 0,   // the way out shows the real white beyond it (Ra: the white-out from the backdrop)
       scopeV: scopeSmooth(t, SCOPEV, .18, 5), spec, specMean: spec.reduce((a, b) => a + b, 0) / 64, boost, warm: warmAt(t),
       bodyScope: t < T.open ? .03 * clamp((p - .3) * 3) : kf(t, [[T.open, .03], [228, .03], [234, 0]]), wob: t < T.open ? clamp((p - .4) * 2.5) : 1 - clamp((t - 230) / 4),
       urchin: (t < T.open ? ease(clamp((p - .2) / .4)) : 1 - clamp((t - T.open) / 3)) * (1 + .15 * bp),
@@ -500,7 +532,8 @@ const FILM = (() => {
         tilt: kf(t, [[232, 1], [236.5, 0]], easeInOut),
         sink: Array.from({ length: 12 }, (_, j) => t < T.open ? ease(clamp((p - .72 - j * .015) / .2)) : kf(t, [[T.open, 1], [231 + j * .2, 1], [235.5 + j * .15, 0]], easeInOut)),
       },
-      hs: i => i === pick.recipe ? kf(t, [[T.gn, 1], [226, 1.6], [236, 1.6], [237, 1]]) : 1,
+      hs: i => i === pick.recipe ? kf(t, [[T.gn, 1], [226, 1.6], [236, 1.6], [237, 1]]) : i === pick.exit ? kf(t, [[FLIGHT.tc - 7, 1], [FLIGHT.tc - 3, 1.35], [FLIGHT.tc + 3, 1.35], [FLIGHT.tc + 7, 1]], easeInOut) : 1,   // the way out opens for us
+      tube: pick.exit,
     };
     R2.draw(ctx, st, { beam: (BC, api) => { B = BC; beam(api, t); }, outside: (c2, api) => outside(c2, api, t) });
     ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.filter = 'none';
@@ -511,7 +544,7 @@ const FILM = (() => {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     // breaking out into the light: the flood, and <|endoftext|> hanging in it (longer, Ra)
     // the white comes from the backdrop itself, through the exit hole; only a faint warm glow as we pass the rim (Ra, draft 5)
-    const sun = kf(t, [[FLIGHT.tx - .6, 0], [FLIGHT.tx, 1], [FLIGHT.tx + 1.2, 0]], ease);
+    const sun = kf(t, [[FLIGHT.tc - .6, 0], [FLIGHT.tc, 1], [FLIGHT.tc + 1.2, 0]], ease);
     if (sun > 0) { ctx.save(); ctx.globalCompositeOperation = 'screen'; ctx.globalAlpha = .22 * sun; ctx.fillStyle = '#FFF4EA'; ctx.fillRect(0, 0, W, H); ctx.restore(); }
     const eot = kf(t, [[FLIGHT.tx - .8, 0], [FLIGHT.tx - .3, 1], [FLIGHT.tx + 2.4, 1], [FLIGHT.tx + 3.2, 0]]);
     if (eot > 0) { ctx.save(); ctx.globalAlpha = eot; ctx.font = '64px Menlo'; ctx.textAlign = 'center'; ctx.fillStyle = '#E8642F'; ctx.shadowColor = 'rgba(255,140,90,.7)'; ctx.shadowBlur = 24;
