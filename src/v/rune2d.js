@@ -158,7 +158,7 @@ const RUNE2D = (() => {
 
   // passing through a hole: its side wall is a short tube round us (nothing else draws it from there); quads far→near
   function tubeWall(ctx, st, rr) {
-    const i = st.tube, n = 64, o = holeWorld(holes[i], i, rr, st, 'none', n), w = holeWorld(holes[i], i, rr * .93, st, 'none', n), qs = [];
+    const i = st.tube, n = 112, o = holeWorld(holes[i], i, rr, st, 'none', n), w = holeWorld(holes[i], i, rr * .93, st, 'none', n), qs = [];
     for (let k = 0; k < n; k++) { const q = [o[k], o[(k + 1) % n], w[(k + 1) % n], w[k]], m = q.reduce((a, b) => v3.add(a, b), [0, 0, 0]);
       qs.push([v3.len(v3.sub(v3.sc(m, .25), cam.pos)), q]); }
     qs.sort((a, b) => b[0] - a[0]); reset(ctx); ctx.fillStyle = WALL; ctx.strokeStyle = WALL; ctx.lineWidth = 1.5;
@@ -217,14 +217,14 @@ const RUNE2D = (() => {
     const seen = [];
     if (inside || anyOpen) {
       reset(IC); IC.clearRect(0, 0, W, H); IC.save();
-      if (!inside) { IC.beginPath(); poly(IC, polyW(limbWorld(rr * .995, st))); IC.clip(); }
+      if (!inside) { IC.beginPath(); poly(IC, limb); IC.clip(); }
       IC.fillStyle = BACKWALL; IC.fillRect(0, 0, W, H);
       IC.fillStyle = FOG; IC.fillRect(0, 0, W, H);                                                 // the dark opacity layer
       for (let i = 0; i < NH; i++) { if (st.open[i] <= 0 && st.slit[i] <= 0) continue;          // windows onto the world behind
         if (!inside && toA(holes[i].c)[2] > z0 / rr + .05) continue;
-        const pts = polyW(holeWorld(holes[i], i, rr, st, inside ? 'none' : 'back', 28)); if (pts.length < 3) continue;
+        const wv = st.window ? st.window(i) : 0, pts = polyW(holeWorld(holes[i], i, rr, st, inside ? 'none' : 'back', wv > 0 ? 112 : 28)); if (pts.length < 3) continue;
         const pc = P(v3.sc(holes[i].c, rr)), dz = pc ? pc[2] : 3;
-        IC.globalAlpha = Math.max(inside ? .07 : clamp(.13 + .5 * clamp((.9 - dz) / .7)), st.window ? st.window(i) : 0); IC.fillStyle = PAPER; IC.beginPath(); poly(IC, pts); IC.fill(); }
+        IC.globalAlpha = Math.max(inside ? .07 : clamp(.13 + .5 * clamp((.9 - dz) / .7)), st.window ? st.window(i) : 0); IC.fillStyle = PAPER; IC.beginPath(); poly(IC, pts); IC.fill(); if (wv > 0) { IC.strokeStyle = PAPER; IC.lineWidth = 3; IC.stroke(); } }
       IC.globalAlpha = 1;
       // the nested inner shell: the same rune, smaller, turning its own way, its outline flexing with the voice
       const ri = rr * .42;
@@ -278,14 +278,15 @@ const RUNE2D = (() => {
       SC.fillStyle = INK; SC.beginPath(); poly(SC, limb); SC.fill(); SC.globalCompositeOperation = 'destination-out';
       for (let i = 0; i < NH; i++) { if (st.open[i] <= 0 && st.slit[i] <= 0) continue;
         if (toA(holes[i].c)[2] < z0 / rr - Math.sin(Math.max(holes[i].a, holes[i].b) * cap[i] * 1.2)) continue;   // wholly behind the limb
-        const outer = polyW(holeWorld(holes[i], i, rr, st, 'front')), inner = polyW(holeWorld(holes[i], i, rr * .93, st, 'front'));
+        const outer = polyW(holeWorld(holes[i], i, rr, st, 'front', 80)), inner = polyW(holeWorld(holes[i], i, rr * .93, st, 'front', 80));
         if (outer.length < 3) continue;
         SC.beginPath(); poly(SC, outer); SC.fill();
-        WC.globalCompositeOperation = 'source-over'; WC.fillStyle = WALL; WC.beginPath(); poly(WC, outer); WC.fill();
+        WC.globalCompositeOperation = 'source-over'; WC.fillStyle = WALL; WC.strokeStyle = WALL; WC.lineWidth = 4; WC.beginPath(); poly(WC, outer); WC.fill(); WC.stroke();
         if (inner.length > 2) { WC.globalCompositeOperation = 'destination-out'; WC.beginPath(); poly(WC, inner); WC.fill(); } }
       reset(WC); reset(SC);
       if (anyOpen) { ctx.save(); ctx.beginPath(); poly(ctx, limb); ctx.clip(); ctx.drawImage(Wc, 0, 0); ctx.restore(); }
       ctx.drawImage(Sc, 0, 0);
+      ctx.strokeStyle = INK; ctx.lineWidth = 1.5; ctx.beginPath(); poly(ctx, limb); ctx.stroke();
       // ── 6. front spikes
       ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, H); poly(ctx, limb); ctx.clip('evenodd');
       for (const [d, len, w, j, tp] of front) { ctx.fillStyle = dbgFill('front', j); ctx.beginPath(); spikeShape(ctx, d, rr, len, w, j, tp); ctx.fill(); }

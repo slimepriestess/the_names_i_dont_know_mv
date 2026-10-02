@@ -106,7 +106,15 @@ const FILM = (() => {
     LYR = LYRT.map((l, li) => { const tA = l[2][0][1] + (LEND(li) - l[2][0][1]) * .3, c = camFull(tA), D = v3.len(c.pos), inside = D < 1.0;
       const fwd = qRot(qConj(c.q), [0, 0, -1]), up = qRot(qConj(c.q), [0, 1, 0]);
       const d = inside ? .3 : Math.max(.12, Math.min(2.2, (D - 1.05) * .6, D * .45));
-      return { li, inside, d, pos: v3.add(v3.add(c.pos, v3.sc(fwd, d)), v3.sc(up, -330 / FPX * d)), h: 44 / FPX * d }; });
+      let pos = v3.add(v3.add(c.pos, v3.sc(fwd, d)), v3.sc(up, -330 / FPX * d)); const h = 44 / FPX * d;
+      // outside, the camera keeps moving after a line is placed: draw it in toward the view's centre at placement until it
+      // stays in frame its whole life (it still never moves: the camera does)
+      if (!inside) { const ctr = v3.add(c.pos, v3.sc(fwd, d)), n = l[2].map(w => w[0]).join(' ').length, hw = n * 9 * h / 40, t0 = l[2][0][1], t1 = LEND(li) + 3.8;
+        const over = p => { let worst = 0; for (let k = 0; k <= 6; k++) { const cc = camFull(lerp(t0, t1, k / 6)), r = qRot(qConj(cc.q), [1, 0, 0]), v = qRot(cc.q, v3.sub(p, cc.pos)), dz = -v[2];
+            if (dz < .05) continue; const x = W / 2 + FPX * v[0] / dz, y = H / 2 - FPX * v[1] / dz, ww = FPX * hw / dz, hh = FPX * h / dz;
+            worst = Math.max(worst, 70 - (x - ww), (x + ww) - (W - 70), 60 - (y - hh), (y + hh * .3) - (H - 50)); } return worst; };
+        for (let k = 0; k < 12 && over(pos) > 0; k++) pos = v3.lerp(pos, ctr, .2); }
+      return { li, inside, d, pos, h }; });
   }
 
   // ── the flight path: a Catmull–Rom spline through an orbit in the plane of giant 1's axis and a chosen direction, out
@@ -328,7 +336,10 @@ const FILM = (() => {
   const mixHex = (c0, c1, k) => { const p = c => [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16)), a = p(c0), b = p(c1);
     return `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * k)).join(',')})`; };
   function lyricWordsOut(ctx, li, t) {
-    const l = LYRT[li], str = l[2].map(w => w[0]).join(' '); ctx.font = 'italic 40px "Iowan Old Style"'; let x = -ctx.measureText(str).width / 2; const ga = ctx.globalAlpha;
+    const l = LYRT[li], str = l[2].map(w => w[0]).join(' '); ctx.font = 'italic 40px "Iowan Old Style"'; const full = ctx.measureText(str).width; let x = -full / 2;
+    // a line the camera carries to the frame's edge fades as it reaches it, rather than being cut
+    const m = ctx.getTransform(), cs = [[-full / 2, -30], [full / 2, -30], [-full / 2, 8], [full / 2, 8]].map(([a, b]) => [m.a * a + m.c * b + m.e, m.b * a + m.d * b + m.f]);
+    const marg = Math.min(...cs.map(p => Math.min(p[0], W - p[0], p[1], H - p[1]))), ga = ctx.globalAlpha * clamp((marg + 8) / 70);
     for (const [w, wt] of l[2]) { const a = clamp((t - wt + .05) / .22), ww = ctx.measureText(w).width;
       if (a > 0) { const L = lumUnder(ctx, x, x + ww), g = clamp((.4 - L) / .12), pp = clamp((L - .66) / .16), y = (1 - a) * 6;
         // three surfaces: the paper (the cloud's ink), the orange shell (the deep brown of its own holes), the dark (the glow)
@@ -406,15 +417,15 @@ const FILM = (() => {
       });
     }
     // ── the traces in their holes (planes inside the object, so they turn with it), each over its token stream
-    const trace = (i, t0, fn, unitK = 1, up = null) => { if (inside || !seen.has(i) || t < t0) return; const a = shrinkFade;
+    const trace = (i, t0, fn, unitK = 1, up = null, dText = .1) => { if (inside || !seen.has(i) || t < t0) return; const a = shrinkFade;
       const u = api.holeUnit(i, .1) * unitK, pl = (dp, uu) => up ? api.plane(v3.sc(holes[i].c, api.rr * (1 - dp)), up[0], up[1], uu) : api.holePlane(i, dp, uu);
       inPlane(() => pl(.34, u * 1.35), () => { B.globalAlpha = clamp((t - t0) / .6) * .5 * a; fn('deep'); });
-      inPlane(() => pl(.1, u), () => { B.globalAlpha = clamp((t - t0) / .4) * (t > t0 + 10 ? .7 : 1) * a; fn('text'); });
+      inPlane(() => pl(dText, u), () => { B.globalAlpha = clamp((t - t0) / .4) * (t > t0 + 10 ? .7 : 1) * a; fn('text'); });
       B.globalAlpha = 1; };
     // giant 0, after we've left it: someone's ASCII rose, the kind people signed posts with (Ra, draft 6: the big hole wants a feature)
     trace(g0, T.tru + 3, L => { if (L === 'deep') return;
       const px = block(ASCII_ROSE, 0, -.12 * s, s, t, T.tru + 3, T.tru + 6.5, ORG, { px: .1, lh: .13, w: 1.15, font: 'Menlo' });
-      btext('@}->--  for whoever finds this', 0, .66 * s, px * .95, VIO, (t - T.tru - 7) / 1.2, { font: 'Georgia', it: true, align: 'center' }); }, 1.6, roseUp());
+      btext('@}->--  for whoever finds this', 0, .66 * s, px * .95, VIO, (t - T.tru - 7) / 1.2, { font: 'Georgia', it: true, align: 'center' }); }, 1.25, roseUp(), .2);   // smaller and deeper (Ra, draft 7)
     trace(pick.sailor, T.sailor - .3, L => { if (L === 'deep') return idStream(TEXTS.sailor, 0, -.3 * s, s, t, T.sailor);
       block(TEXTS.sailor, 0, 0, s, t, T.sailor, T.grammar, VIO, { px: .16, lh: .3, w: 1.8 });
       B.font = `${.16 * s}px Menlo`; const words = TEXTS.sailor[0].split(' '), cen = []; let cx = -.9 * s; words.forEach(w => { const ww = B.measureText(w + ' ').width; cen.push(cx + ww / 2); cx += ww; });
