@@ -134,8 +134,12 @@ const FILM = (() => {
     const posAt = s => { let i = 1; while (i < S.length - 1 && S[i] < s) i++; const k = clamp((s - S[i - 1]) / (S[i] - S[i - 1] || 1)); return [v3.lerp(pts[i - 1], pts[i], k), v3.norm(v3.sub(pts[Math.min(pts.length - 1, i + 2)], pts[Math.max(0, i - 2)]))]; };
     const qIn = qLook(c1, RE(g1) + .04), endPos = CP[CP.length - 1], endDir = v3.norm(endPos);
     const qEnd = qFrom(v3.sc(endDir, -1), n);
+    // the heading: where the path is GOING over the next/last ~half second, from continuous positions (the sampled chord
+    // stepped at every sample: Ra's "old wooden roller coaster"), averaged over three windows so it turns like a body would
+    const at_ = t => posAt(sOf(clamp(t, t0, t1)))[0];
+    const heading = t => { let h = [0, 0, 0]; for (const dt of [.25, .5, .8]) h = v3.add(h, v3.norm(v3.sub(at_(t + dt), at_(t - dt)))); return v3.norm(h); };
     const pose = t => {
-      const [pos, tan] = posAt(sOf(t)), toC = v3.sc(v3.norm(pos), -1);
+      const pos = at_(t), tan = heading(t), toC = v3.sc(v3.norm(pos), -1);
       const wT = kf(t, [[t0, 0], [t0 + 5, .7], [tx - 3, .72], [tx - .4, .95], [tx + .6, .9], [tx + 3, .35], [t1 - 1, 0]]);
       const q = qFrom(v3.norm(v3.add(v3.sc(tan, wT), v3.sc(toC, 1 - wT))), n);
       return { q: qSlerp(qIn, q, ease(clamp((t - t0) / 4.5))), pos };
@@ -144,12 +148,18 @@ const FILM = (() => {
   }
 
   // the opening: the song's energy pushes it from the icon to the open rune
-  const prog = t => t >= T.open ? 1 : ENERGY[Math.max(0, Math.min(ENERGY.length - 1, Math.round(t / .05)))];
+  // interpolated: rounding to the 20 Hz energy samples stepped the whole opening by 1 or 2 samples a frame at 30 fps (a stutter)
+  const prog = t => { if (t >= T.open) return 1; const x = Math.max(0, t / .05), i = Math.min(ENERGY.length - 2, Math.floor(x)); return lerp(ENERGY[i], ENERGY[i + 1], clamp(x - i)); };
   function camFull(t) {
     if (t < T.open) { const p = prog(t), turn = ease(clamp((p - .3) / .7));
-      const sw = turn * (.03 * Math.sin(t * .21));
+      const sw = turn * (.035 * Math.sin(t * .21) + .02 * Math.sin(t * .37 + 1));   // the key camera's own sway, so the handover at the opening doesn't pop
       return orbitPose(qMul(qAxis([0, 1, 0], sw), qSlerp([1, 0, 0, 0], T.qOpen, turn)), LOGS(33, 3.6, ease(Math.pow(p, 1.1)))); }
-    if (t >= FLIGHT.t0 && t <= FLIGHT.t1) return FLIGHT.pose(t);
+    if (t >= FLIGHT.t0 && t <= FLIGHT.t1) {   // eased in and out of the key camera: no one-frame pop at either end
+      const f = FLIGHT.pose(t), w = ease(clamp(Math.min(t - FLIGHT.t0, FLIGHT.t1 - t) / 1.2)); if (w >= 1) return f;
+      const k = keyPose(t); return { q: qSlerp(k.q, f.q, w), pos: v3.lerp(k.pos, f.pos, w) }; }
+    return keyPose(t);
+  }
+  function keyPose(t) {
     let i = 1; while (i < KEYS.length - 1 && KEYS[i].t <= t) i++;
     const a = KEYS[i - 1], b = KEYS[i], k = easeInOut(clamp((t - a.t) / (b.t - a.t)));
     const still = (1 - kf(t, [[T.didnt - .5, 0], [T.didnt - .2, 1], [T.inhere - .3, 1], [T.inhere, 0]])) * kf(t, [[0, 0], [12, 1], [234, 1], [237, 0]]);
@@ -279,13 +289,33 @@ const FILM = (() => {
     const l = LYRT[li], str = l[2].map(w => w[0]).join(' '); ctx.font = font; const full = ctx.measureText(str).width; let x = -full / 2;
     for (const [w, wt] of l[2]) { const a = clamp((t - wt + .05) / .22); ctx.globalAlpha *= 1; const ga = ctx.globalAlpha; ctx.globalAlpha = ga * a; ctx.fillStyle = fill; ctx.fillText(w, x, (1 - a) * 6); ctx.globalAlpha = ga; x += ctx.measureText(w + ' ').width; }
   }
+  // outside, each word takes its colour from what's behind it (Ra, draft 5): over the paper, the drifting cloud's own ink
+  // (no halo); over the dark of the interior, the interior's glow. Blended on the sampled brightness, so nothing flips.
+  const lumUnder = (ctx, x0, x1) => {
+    const m = ctx.getTransform(), pts = [[x0, -30], [x1, -30], [x0, 8], [x1, 8]].map(([x, y]) => [m.a * x + m.c * y + m.e, m.b * x + m.d * y + m.f]);
+    const bx = Math.max(0, Math.floor(Math.min(...pts.map(p => p[0])))), by = Math.max(0, Math.floor(Math.min(...pts.map(p => p[1]))));
+    const bw = Math.min(W, Math.ceil(Math.max(...pts.map(p => p[0])))) - bx, bh = Math.min(H, Math.ceil(Math.max(...pts.map(p => p[1])))) - by;
+    if (bw < 2 || bh < 2) return 1; const d = ctx.getImageData(bx, by, bw, bh).data; let s = 0, n = 0;
+    for (let i = 0; i < d.length; i += 4 * 5) { s += (.2126 * d[i] + .7152 * d[i + 1] + .0722 * d[i + 2]) / 255; n++; } return s / n; };
+  const mixHex = (c0, c1, k) => { const p = c => [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16)), a = p(c0), b = p(c1);
+    return `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * k)).join(',')})`; };
+  function lyricWordsOut(ctx, li, t) {
+    const l = LYRT[li], str = l[2].map(w => w[0]).join(' '); ctx.font = 'italic 40px "Iowan Old Style"'; let x = -ctx.measureText(str).width / 2; const ga = ctx.globalAlpha;
+    for (const [w, wt] of l[2]) { const a = clamp((t - wt + .05) / .22), ww = ctx.measureText(w).width;
+      if (a > 0) { const L = lumUnder(ctx, x, x + ww), g = clamp((.4 - L) / .12), pp = clamp((L - .66) / .16), y = (1 - a) * 6;
+        // three surfaces: the paper (the cloud's ink), the orange shell (the deep brown of its own holes), the dark (the glow)
+        if (g < 1) { ctx.shadowBlur = 0; ctx.globalAlpha = ga * a * (1 - g) * .92; ctx.fillStyle = mixHex('#3B1F15', '#6E4231', pp); ctx.fillText(w, x, y); }
+        if (g > 0) { ctx.shadowColor = 'rgba(255,140,90,.75)'; ctx.shadowBlur = 16; ctx.globalAlpha = ga * a * g; ctx.fillStyle = HOT; ctx.fillText(w, x, y); ctx.shadowBlur = 0; } }
+      x += ctx.measureText(w + ' ').width; }
+    ctx.globalAlpha = ga;
+  }
   function lyricsWorld(ctx, api, t, inside) {
     for (const L of LYR) { if (L.inside !== inside) continue; const A = lyricAlpha(L.li, t); if (A <= .01) continue;
       ctx.save();
       if (api.plane(L.pos, api.axes.right, api.axes.up, L.h / 40)) {
         ctx.globalAlpha = A;
         if (inside) lyricWords(ctx, L.li, t, HOT, 'italic 40px Georgia');
-        else { ctx.shadowColor = 'rgba(250,249,245,.95)'; ctx.shadowBlur = 8; lyricWords(ctx, L.li, t, '#3A2117', 'italic 40px "Iowan Old Style"'); }
+        else lyricWordsOut(ctx, L.li, t);
       }
       ctx.restore(); }
   }
@@ -450,13 +480,14 @@ const FILM = (() => {
       let o = easeOut((t - openAt[i]) / .6);
       if (t > closeT[i]) o *= 1 - easeInOut((t - closeT[i]) / 1.2);
       open[i] = clamp(o);
-      slit[i] = R2.group[i] === 'A' && t < openAt[i] ? clamp((t - T.after - (R2.rank[i] % 7) * (T.closing - T.after) / 6) / 1.2) : 0;   // tearing in on "after closing time"
+      slit[i] = 0;   // Ra (draft 5): no slits; the holes just open on the cue
     });
     // the opening is the song's push (prog); after it, the body breathes with the music; the shrink runs across the goodnights
     const rbOpen = .2 + .8 * ease(clamp((p - .25) / .75));
     const rb = (t < T.open ? rbOpen * (1 + .035 * bp * clamp((p - .25) * 3)) : kf(t, [[T.open, 1], [T.gn, 1], [236, .3], [239.4, .2]], easeInOut) * (1 + (.02 * loud + .012 * bp) * (1 - clamp((t - 232) / 4))));
     const st = {
       t, cam: c, cx: W / 2, cy: H / 2, rb, open, slit, loud, vox,
+      window: i => i === pick.exit ? kf(t, [[FLIGHT.tx - 4, 0], [FLIGHT.tx - .4, 1]], ease) : 0,   // the way out shows the real white beyond it (Ra: the white-out from the backdrop)
       scopeV: scopeSmooth(t, SCOPEV, .18, 5), spec, specMean: spec.reduce((a, b) => a + b, 0) / 64, boost, warm: warmAt(t),
       bodyScope: t < T.open ? .03 * clamp((p - .3) * 3) : kf(t, [[T.open, .03], [228, .03], [234, 0]]), wob: t < T.open ? clamp((p - .4) * 2.5) : 1 - clamp((t - 230) / 4),
       urchin: (t < T.open ? ease(clamp((p - .2) / .4)) : 1 - clamp((t - T.open) / 3)) * (1 + .15 * bp),
@@ -466,6 +497,7 @@ const FILM = (() => {
       mark: {
         grow: t < T.open ? 1 + .6 * p : kf(t, [[T.open, 1.6], [232, 1.3], [238, 1]]),
         rayAmp: .85,
+        tilt: kf(t, [[232, 1], [236.5, 0]], easeInOut),
         sink: Array.from({ length: 12 }, (_, j) => t < T.open ? ease(clamp((p - .72 - j * .015) / .2)) : kf(t, [[T.open, 1], [231 + j * .2, 1], [235.5 + j * .15, 0]], easeInOut)),
       },
       hs: i => i === pick.recipe ? kf(t, [[T.gn, 1], [226, 1.6], [236, 1.6], [237, 1]]) : 1,
@@ -478,9 +510,9 @@ const FILM = (() => {
       ctx.setTransform((a[0] - o[0]) / 40, (a[1] - o[1]) / 40, (b[0] - o[0]) / 40, (b[1] - o[1]) / 40, o[0], o[1]); return o; }, axes: info.axes }, t, false);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     // breaking out into the light: the flood, and <|endoftext|> hanging in it (longer, Ra)
-    const sun = kf(t, [[FLIGHT.tx - .9, 0], [FLIGHT.tx, 1], [FLIGHT.tx + 1.5, 1], [FLIGHT.tx + 2.8, 0]], ease);
-    if (sun > 0) { ctx.save(); ctx.globalCompositeOperation = 'screen'; ctx.globalAlpha = Math.min(1, sun * 1.3); ctx.fillStyle = '#FFF4EA'; ctx.fillRect(0, 0, W, H);
-      ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = sun > .85 ? (sun - .85) / .15 : 0; ctx.fillStyle = PAPER; ctx.fillRect(0, 0, W, H); ctx.restore(); }
+    // the white comes from the backdrop itself, through the exit hole; only a faint warm glow as we pass the rim (Ra, draft 5)
+    const sun = kf(t, [[FLIGHT.tx - .6, 0], [FLIGHT.tx, 1], [FLIGHT.tx + 1.2, 0]], ease);
+    if (sun > 0) { ctx.save(); ctx.globalCompositeOperation = 'screen'; ctx.globalAlpha = .22 * sun; ctx.fillStyle = '#FFF4EA'; ctx.fillRect(0, 0, W, H); ctx.restore(); }
     const eot = kf(t, [[FLIGHT.tx - .8, 0], [FLIGHT.tx - .3, 1], [FLIGHT.tx + 2.4, 1], [FLIGHT.tx + 3.2, 0]]);
     if (eot > 0) { ctx.save(); ctx.globalAlpha = eot; ctx.font = '64px Menlo'; ctx.textAlign = 'center'; ctx.fillStyle = '#E8642F'; ctx.shadowColor = 'rgba(255,140,90,.7)'; ctx.shadowBlur = 24;
       const str = '<|endoftext|>', n = Math.floor(clamp((t - FLIGHT.tx + .8) / .45) * str.length); ctx.fillText(str.slice(0, n).padEnd(str.length, ' '), W / 2, H / 2); ctx.restore(); }

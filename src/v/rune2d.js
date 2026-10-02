@@ -42,6 +42,8 @@ const WALL = '#B65C3D', BACKWALL = '#8A4530', FOG = 'rgba(15,10,8,.86)', INNER =
 const mkCanvas = () => { const c = document.createElement('canvas'); c.width = W; c.height = H; return c; };
 
 const RUNE2D = (() => {
+  const DBG = typeof location !== 'undefined' && location.search.includes('dbg');
+  const dbgFill = (side, j) => DBG ? (j < 12 && side ? '#2a9d3a' : side === 'front' ? '#d02020' : '#2050d0') : INK;
   const L = runeLayout(), holes = L.holes, NH = holes.length;
   const ang = (a, b) => Math.acos(clamp(v3.dot(a, b), -1, 1));
   const bySize = holes.map((h, i) => i).sort((i, j) => (holes[j].a + holes[j].b) - (holes[i].a + holes[i].b));
@@ -73,13 +75,16 @@ const RUNE2D = (() => {
     return out;
   })();
   // the other spikes use the same outlines without the junction at the root, so they stand alone on the skin
-  RAYS.push(...RAYS.map(r => { const pts = r.pts.filter(p => p[0] >= .24); return { pts, len: r.len, half: r.half }; }));
+  RAYS.push(...RAYS.map(r => { const pts = r.pts.filter(p => p[0] >= .24);
+    pts.push([.12, pts[pts.length - 1][1]], [.12, pts[0][1]]);   // the root runs straight down into the body: no flat cut floating off the skin
+    return { pts, len: r.len, half: r.half }; }));
   // the spikes: cluster teeth (on the membrane between ALL holes), an urchin for the opening, the mark's own 12 rays
   let s = 7; const R = () => (s = (s * 16807) % 2147483647) / 2147483647;
   const spikes = L.teeth.map((q, k) => ({ d: v3.norm(q.c), L: .16 + q.len * 1.6, w: (.03 + q.r * .35) / .045 * .55, per: 6 + 7 * R(), ph: R(), kind: 'tooth', j: 12 + k % 12 }));
   for (let i = 0; i < 30; i++) { const z = i < 14 ? (R() - .5) * .35 : 1 - 2 * R(), r = Math.sqrt(1 - z * z), a = i < 14 ? (i + .5) / 14 * TAU + (R() - .5) * .2 : R() * TAU;
     spikes.push({ d: [Math.cos(a) * r, Math.sin(a) * r, z], L: .55 + .45 * R(), w: (.04 + .02 * R()) / .045 * .55, per: 9 + 6 * R(), ph: R(), kind: 'urchin', j: 12 + i % 12 }); }
   MARK_A.forEach((a, j) => spikes.push({ d: [Math.cos(a), Math.sin(a), 0], L: RAYS[j].len, w: 1, per: 1e9, ph: 0, kind: 'mark', j }));
+  const MARK_TILT = MARK_A.map((a, j) => (j % 2 ? -1 : 1) * (.55 + .35 * ((j * .618) % 1)));
   const struts = L.teeth.filter((q, i) => i % 6 === 0).map((q, k) => ({ d: v3.norm(q.c), k }));
 
   // ── the camera: q = world→view rotation (it looks down its own -z), pos = its position in the world
@@ -132,7 +137,7 @@ const RUNE2D = (() => {
     let sx = p1[0] - p0[0], sy = p1[1] - p0[1]; const l = Math.hypot(sx, sy), shaft = ws * ray.half * FPX / p0[2];
     if (l < shaft * 1.6) { ctx.moveTo(p0[0] + shaft, p0[1]); ctx.arc(p0[0], p0[1], shaft, 0, TAU); return; }   // end-on: its round end
     sx /= l; sy /= l; const lx = sy, ly = -sx, k = len / ray.len; let first = true;
-    for (const [u, v] of ray.pts) { const c = P(v3.sc(d, rr + (u - .2) * k)); if (!c) continue; const sc = ws * FPX / c[2];
+    for (const [u, v] of ray.pts) { const c = P(v3.sc(d, u < .2 ? rr * Math.max(0, u) / .2 : rr + (u - .2) * k)); if (!c) continue; const sc = ws * FPX / Math.max(c[2], p0[2]);
       const x = c[0] + lx * v * sc, y = c[1] + ly * v * sc; if (first) { ctx.moveTo(x, y); first = false; } else ctx.lineTo(x, y); }
     ctx.closePath();
   }
@@ -160,23 +165,27 @@ const RUNE2D = (() => {
     const anyOpen = st.open.some(o => o > 0) || st.slit.some(o => o > 0);
     // ── spikes: own rise/sink cycle × the radial spectrum at their screen angle × clearance from open holes
     const openH = holes.map((h, i) => Math.max(st.open[i], st.slit[i] * .12)), front = [], back = [];
+    const offAxis = Math.acos(clamp(cam.pos[2] / D, -1, 1)), markTilt = (st.mark.tilt ?? 1) * clamp(offAxis / .5) ** 1.5;   // only as far as the camera has left the face-on axis
     if (!inside) spikes.forEach(sp => {
+      // the mark's rays lie in one plane: seen obliquely they'd bunch into slabs, so they splay out of it (alternately toward
+      // and away from the face-on view, so face-on it's still the exact mark) while the camera leaves the axis
+      const d = sp.kind === 'mark' && markTilt > 0 ? v3.norm(v3.add(sp.d, [0, 0, MARK_TILT[sp.j] * markTilt])) : sp.d;
       let amt = 1, life = 1, len;
       if (sp.kind !== 'mark') { amt = sp.kind === 'urchin' ? st.urchin : st.teeth; if (amt <= 0) return;
         const cyc = (st.t / sp.per + sp.ph) % 1; life = Math.max(0, Math.sin(Math.min(1, cyc / .75) * Math.PI)); }
       let clear = 1;
-      for (let i = 0; i < NH; i++) { if (openH[i] <= 0) continue; const g = ang(sp.d, holes[i].c) - rhoDir(holes[i], sp.d) * cap[i] * 1.1 * openH[i] - .012;
+      for (let i = 0; i < NH; i++) { if (openH[i] <= 0) continue; const g = ang(d, holes[i].c) - rhoDir(holes[i], d) * cap[i] * 1.1 * openH[i] - .012;
         if (g < .03) clear = Math.min(clear, clamp(g / .03)); if (clear <= 0) return; }
-      const pr = P(v3.sc(sp.d, rr)), pt = P(v3.sc(sp.d, rr * 1.3)), sa = pr && pt ? Math.atan2(-(pt[1] - pr[1]), pt[0] - pr[0]) : 0;
+      const pr = P(v3.sc(d, rr)), pt = P(v3.sc(d, rr * 1.3)), sa = pr && pt ? Math.atan2(-(pt[1] - pr[1]), pt[0] - pr[0]) : 0;
       if (sp.kind === 'mark') len = sp.L * st.mark.grow * (1 - st.mark.sink[sp.j]) * clamp(1 + st.mark.rayAmp * (ringAt(st.spec, MARK_A[sp.j]) - st.specMean), .1, 2.3) * clear;
       else len = sp.L * amt * clear * Math.pow(life, .7) * clamp(.3 + 1.5 * ringAt(st.spec, sa), .06, 2.2) * (sp.kind === 'urchin' ? 1 : st.toothScale) * (st.boost ? st.boost(sa) : 1);
       if (len < .01) return;
-      (toA(sp.d)[2] * rr < z0 ? back : front).push([sp.d, len, sp.kind === 'mark' ? Math.pow(st.mark.grow, .4) : sp.w * Math.min(.9, .3 + len / .9), sp.j]);
+      (toA(d)[2] * rr < z0 ? back : front).push([d, len, sp.kind === 'mark' ? Math.pow(st.mark.grow, .4) : sp.w * Math.min(.9, .3 + len / .9), sp.j]);
     });
     // ── 1. paper; the outside text; 2. back spikes
     reset(ctx); ctx.fillStyle = PAPER; ctx.fillRect(0, 0, W, H); if (st.bg) st.bg(ctx);
     if (hooks && hooks.outside) { hooks.outside(ctx, { plane: (c, e1, e2, unit) => plane(ctx, c, e1, e2, unit), P, axes, rr, inside, Dc: D }); reset(ctx); }
-    ctx.fillStyle = INK; for (const [d, len, w, j] of back) { ctx.beginPath(); spikeShape(ctx, d, rr, len, w, j); ctx.fill(); }
+    for (const [d, len, w, j] of back) { ctx.fillStyle = dbgFill('back', j); ctx.beginPath(); spikeShape(ctx, d, rr, len, w, j); ctx.fill(); }
     const limb = inside ? null : polyW(limbWorld(rr, st));
     // ── 3. the interior (only once something has opened: before that there's nothing to see in, and no seam to leave)
     const seen = [];
@@ -189,7 +198,7 @@ const RUNE2D = (() => {
         if (!inside && toA(holes[i].c)[2] > z0 / rr + .05) continue;
         const pts = polyW(holeWorld(holes[i], i, rr, st, inside ? 'none' : 'back', 28)); if (pts.length < 3) continue;
         const pc = P(v3.sc(holes[i].c, rr)), dz = pc ? pc[2] : 3;
-        IC.globalAlpha = inside ? .07 : clamp(.13 + .5 * clamp((.9 - dz) / .7)); IC.fillStyle = PAPER; IC.beginPath(); poly(IC, pts); IC.fill(); }
+        IC.globalAlpha = Math.max(inside ? .07 : clamp(.13 + .5 * clamp((.9 - dz) / .7)), st.window ? st.window(i) : 0); IC.fillStyle = PAPER; IC.beginPath(); poly(IC, pts); IC.fill(); }
       IC.globalAlpha = 1;
       // the nested inner shell: the same rune, smaller, turning its own way, its outline flexing with the voice
       const ri = rr * .42;
@@ -251,7 +260,9 @@ const RUNE2D = (() => {
       if (anyOpen) { ctx.save(); ctx.beginPath(); poly(ctx, limb); ctx.clip(); ctx.drawImage(Wc, 0, 0); ctx.restore(); }
       ctx.drawImage(Sc, 0, 0);
       // ── 6. front spikes
-      ctx.fillStyle = INK; for (const [d, len, w, j] of front) { ctx.beginPath(); spikeShape(ctx, d, rr, len, w, j); ctx.fill(); }
+      ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, H); poly(ctx, limb); ctx.clip('evenodd');
+      for (const [d, len, w, j] of front) { ctx.fillStyle = dbgFill('front', j); ctx.beginPath(); spikeShape(ctx, d, rr, len, w, j); ctx.fill(); }
+      ctx.restore();
     }
     let limbPx = 0; if (limb && c0 && limb.length) limbPx = limb.reduce((m, p) => Math.max(m, Math.hypot(p[0] - c0[0], p[1] - c0[1])), 0) * .97;
     lastInfo = { inside, c0, limbPx, D, axes };
