@@ -80,7 +80,7 @@ const RUNE2D = (() => {
   // the struts: spokes from the inner shell to the outer, along membrane directions (the teeth roots, thinned)
   const struts = L.teeth.filter((q, i) => i % 6 === 0).map((q, k) => ({ d: v3.norm(q.c), k }));
 
-  let cam = null;                                            // { q, Dc, cx, cy }
+  let cam = null, lastInfo = null;                          // { q, Dc, cx, cy }
   const toView = v => qRot(cam.q, v);
   const proj = v => { const dz = cam.Dc - v[2]; if (dz < NEAR) return null; return [cam.cx + FPX * v[0] / dz, cam.cy - FPX * v[1] / dz, dz]; };
   const P = w => proj(toView(w));
@@ -114,6 +114,8 @@ const RUNE2D = (() => {
     const pr = PROF[j].prof, p0 = P(v3.sc(d, rr * .98)), p1 = P(v3.sc(d, rr + len)); if (!p0 || !p1) return;
     let sx = p1[0] - p0[0], sy = p1[1] - p0[1]; const l = Math.hypot(sx, sy);
     if (l < 1) { const wp = ws * .03 * FPX / p0[2]; ctx.moveTo(p0[0] + wp, p0[1]); ctx.arc(p0[0], p0[1], wp, 0, TAU); return; }
+    const pm = pr[Math.floor(pr.length * .45)], w0 = ws * Math.max(pm[1], pm[2]) * FPX / p0[2];   // the shaft's width, not the root's (the mark's root is its junction)
+    if (l < w0 * 1.6) { ctx.moveTo(p0[0] + w0, p0[1]); ctx.arc(p0[0], p0[1], w0, 0, TAU); return; }   // nearly end-on: its round end
     sx /= l; sy /= l; const lx = sy, ly = -sx, L = [], R = [];
     for (const [u, vl, vr] of pr) { const c = P(v3.sc(d, rr + u * len)); if (!c) continue; const k = ws * FPX / c[2];
       L.push([c[0] + lx * vl * k, c[1] + ly * vl * k]); R.push([c[0] - lx * vr * k, c[1] - ly * vr * k]); }
@@ -137,10 +139,16 @@ const RUNE2D = (() => {
   // hooks.beam(BC, api): the film's text and lines, drawn on the beam layer (composited with glow inside the object)
   function draw(ctx, st, hooks) {
     cam = { q: st.q, Dc: st.Dc, cx: st.cx, cy: st.cy };
-    const rr = st.rb, inside = cam.Dc <= rr * 1.03, z0 = inside ? -9 : rr * rr / cam.Dc;
+    const rr = st.rb, inside = Math.abs(cam.Dc) <= rr * 1.03, z0 = inside ? -9 : rr * rr / cam.Dc;
+    if (cam.Dc < -rr * 1.03) {                                       // out the far side, facing away: only the world (the sunlight)
+      reset(ctx); ctx.fillStyle = PAPER; ctx.fillRect(0, 0, W, H); if (st.bg) st.bg(ctx);
+      const axes = { right: qRot(qConj(cam.q), [1, 0, 0]), up: qRot(qConj(cam.q), [0, 1, 0]) };
+      if (hooks && hooks.outside) { hooks.outside(ctx, { plane: (c, e1, e2, unit) => plane(ctx, c, e1, e2, unit), P, axes, rr, inside: false, Dc: cam.Dc, beyond: true }); reset(ctx); }
+      lastInfo = { inside: false, beyond: true, c0: null, limbPx: 0 }; return [];
+    }
     const rl = Math.sqrt(Math.max(0, rr * rr - z0 * z0)), limbPx = inside ? 1e5 : FPX * rl / (cam.Dc - z0);
     const c0 = P([0, 0, 0]) || [cam.cx, cam.cy, 1];
-    const limbPath = c => { c.beginPath(); for (let k = 0; k <= 120; k++) { const a = k / 120 * TAU, r = limbPx * (1 + st.bodyScope * ringAt(st.scope, a) + .01 * st.wob * Math.sin(3 * a + st.t));
+    const limbPath = c => { c.beginPath(); for (let k = 0; k <= 120; k++) { const a = k / 120 * TAU, r = limbPx * (1 + st.bodyScope * (ringAt(st.spec, a) - st.specMean) * 2 + .01 * st.wob * Math.sin(3 * a + st.t));
       const x = c0[0] + Math.cos(a) * r, y = c0[1] - Math.sin(a) * r; k ? c.lineTo(x, y) : c.moveTo(x, y); } c.closePath(); };
     const openH = holes.map((h, i) => Math.max(st.open[i], st.slit[i] * .12));   // a slit is thin: it barely clears anything
     // ── spikes: own rise/sink cycle × the music (in and out with the scope, hard) × clearance from open holes
@@ -154,8 +162,8 @@ const RUNE2D = (() => {
       for (let i = 0; i < NH; i++) { if (openH[i] <= 0) continue; const g = ang(sp.d, holes[i].c) - rhoDir(holes[i], sp.d) * cap[i] * 1.1 * openH[i] - .012;
         if (g < .03) clear = Math.min(clear, clamp(g / .03)); if (clear <= 0) return; }
       const vd = toView(sp.d), sa = Math.atan2(vd[1], vd[0]);
-      if (sp.kind === 'mark') len = sp.L * st.mark.grow * (1 - st.mark.sink[sp.j]) * clamp(1 + st.mark.rayAmp * ringAt(st.scope, MARK_A[sp.j]), .08, 2.2) * amt * clear;
-      else len = sp.L * amt * clear * Math.pow(life, .7) * (.3 + 1.1 * st.loud) * clamp(1 + st.spikeScope * ringAt(st.scope, sa), .05, 2.4) * (sp.kind === 'urchin' ? 1 : st.toothScale);
+      if (sp.kind === 'mark') len = sp.L * st.mark.grow * (1 - st.mark.sink[sp.j]) * clamp(1 + st.mark.rayAmp * (ringAt(st.spec, MARK_A[sp.j]) - st.specMean), .1, 2.3) * amt * clear;
+      else len = sp.L * amt * clear * Math.pow(life, .7) * clamp(.3 + 1.5 * ringAt(st.spec, sa), .06, 2.2) * (sp.kind === 'urchin' ? 1 : st.toothScale) * (st.boost ? st.boost(sa) : 1);
       if (len < .01) return;
       (vd[2] < z0 / rr ? back : front).push([sp.d, len, sp.kind === 'mark' ? Math.pow(st.mark.grow, .4) : sp.w * Math.min(.9, .3 + len / .9), sp.j]);
     });
@@ -163,16 +171,19 @@ const RUNE2D = (() => {
     // ── 1. paper; 2. back spikes
     reset(ctx); ctx.fillStyle = PAPER; ctx.fillRect(0, 0, W, H); if (st.bg) st.bg(ctx);
     if (hooks && hooks.outside) { hooks.outside(ctx, { plane: (c, e1, e2, unit) => plane(ctx, c, e1, e2, unit), P, axes, rr, inside, Dc: cam.Dc }); reset(ctx); }
-    ctx.fillStyle = INK; ctx.beginPath(); for (const [d, len, w, j] of back) spikeShape(ctx, d, rr, len, w, j); ctx.fill();
+    ctx.fillStyle = INK; for (const [d, len, w, j] of back) { ctx.beginPath(); spikeShape(ctx, d, rr, len, w, j); ctx.fill(); }
     // ── 3. the interior
     reset(IC); IC.clearRect(0, 0, W, H);
     IC.save(); if (!inside) { limbPath(IC); IC.clip(); }
     IC.fillStyle = BACKWALL; IC.fillRect(0, 0, W, H);
-    for (let i = 0; i < NH; i++) { if (st.open[i] <= 0 && st.slit[i] <= 0) continue; const cv = toView(holes[i].c);
-      if (!inside && cv[2] > z0 / rr + .05) continue;                                         // a front hole: not part of the back wall
-      const pts = holePts(holes[i], i, rr, st, inside ? 'none' : 'back', z0, 28); if (pts.length < 3) continue;
-      IC.fillStyle = PAPER; IC.beginPath(); poly(IC, pts); IC.fill(); }                          // windows onto the world behind
+
     IC.fillStyle = FOG; IC.fillRect(0, 0, W, H);                                                 // the dark opacity layer
+    for (let i = 0; i < NH; i++) { if (st.open[i] <= 0 && st.slit[i] <= 0) continue; const cv = toView(holes[i].c);
+      if (!inside && cv[2] > z0 / rr + .05) continue;
+      const pts = holePts(holes[i], i, rr, st, inside ? 'none' : 'back', z0, 28); if (pts.length < 3) continue;
+      const pc = P(v3.sc(holes[i].c, rr)), dz = pc ? pc[2] : 3;                                 // windows onto the world behind: dim far off,
+      IC.globalAlpha = inside ? .07 : clamp(.13 + .5 * clamp((.9 - dz) / .7)); IC.fillStyle = PAPER; IC.beginPath(); poly(IC, pts); IC.fill(); }   // bright up close
+    IC.globalAlpha = 1;
     // the nested inner shell: the same rune, smaller, turning its own way, outline flexing with the voice
     const ri = rr * .42;
     if (st.inner > 0 && cam.Dc > ri * 1.05) {
@@ -216,6 +227,7 @@ const RUNE2D = (() => {
     reset(BC);
     IC.globalCompositeOperation = 'lighter'; IC.filter = 'blur(22px)'; IC.globalAlpha = .5; IC.drawImage(Bc, 0, 0); IC.filter = 'blur(6px)'; IC.globalAlpha = .6; IC.drawImage(Bc, 0, 0);
     IC.filter = 'none'; IC.globalAlpha = 1; IC.drawImage(Bc, 0, 0); IC.globalCompositeOperation = 'source-over';
+    if (st.warm > .005) { IC.globalCompositeOperation = 'lighter'; IC.globalAlpha = Math.min(.55, st.warm); IC.fillStyle = '#C8501F'; IC.fillRect(0, 0, W, H); IC.globalAlpha = 1; IC.globalCompositeOperation = 'source-over'; }
     IC.restore();
     ctx.drawImage(I, 0, 0);
     if (!inside) {
@@ -232,9 +244,10 @@ const RUNE2D = (() => {
       ctx.save(); limbPath(ctx); ctx.clip(); ctx.drawImage(Wc, 0, 0); ctx.restore();
       ctx.drawImage(Sc, 0, 0);
       // ── 6. front spikes
-      ctx.fillStyle = INK; ctx.beginPath(); for (const [d, len, w, j] of front) spikeShape(ctx, d, rr, len, w, j); ctx.fill();
+      ctx.fillStyle = INK; for (const [d, len, w, j] of front) { ctx.beginPath(); spikeShape(ctx, d, rr, len, w, j); ctx.fill(); }
     }
+    lastInfo = { inside, beyond: false, c0, limbPx };
     return seen;
   }
-  return { L, draw, group, rank, bySize, cap, spikes, P: w => P(w) };
+  return { info: () => lastInfo, L, draw, group, rank, bySize, cap, spikes, P: w => P(w) };
 })();

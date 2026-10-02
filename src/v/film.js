@@ -1,7 +1,7 @@
 // film.js: The Names I Don't Know, draft 2 (vector). Every frame is a pure function of t.
 // Shots follow STORYBOARD.md; draft 2 answers Ra's notes on draft 1 (project_hymn_mv.md, notes 1–13).
 // (Draft 1's timeline is kept as film_d1.js, for comparison.)
-const ORG = '#FFA67E', VIO = '#A493FF';                    // the beam's phosphor, and the one extra colour (human traces only)
+const ORG = '#FF8C5A', VIO = '#A493FF', HOT = '#FFC4A3';                    // the beam's phosphor, and the one extra colour (human traces only)
 const scopeRing = (t, S = SCOPE) => { const f = t * S.fps, n = S.n, i = Math.max(0, Math.min(S.data.length / n - 2, Math.floor(f))), k = clamp(f - i), o = new Float32Array(n);
   for (let j = 0; j < n; j++) o[j] = lerp(S.data[i * n + j], S.data[(i + 1) * n + j], k) / 127; return o; };
 const ringAt = (ring, ang) => { const x = ((ang / TAU) % 1 + 1) % 1 * 64, i = Math.floor(x) % 64, j = (i + 1) % 64; return lerp(ring[i], ring[j], x - Math.floor(x)); };
@@ -25,7 +25,9 @@ const scopeSmooth = (t, S, win, n) => { const o = new Float32Array(64); for (let
   for (let pass = 0; pass < 2; pass++) { const c = o.slice(); for (let j = 0; j < 64; j++) o[j] = .25 * c[(j + 63) % 64] + .5 * c[j] + .25 * c[(j + 1) % 64]; }
   let m = 0; for (let j = 0; j < 64; j++) m = Math.max(m, Math.abs(o[j])); const g = m > 1e-3 ? Math.min(2.2, .9 / m) * Math.min(1, m * 4) : 0;   // keep its size after the averaging
   for (let j = 0; j < 64; j++) o[j] *= g; return o; };
-const LOGS = (a, b, k) => Math.exp(lerp(Math.log(a), Math.log(b), k));
+const specRing = t => { const f = t * SPEC.fps, n = 64, i = Math.max(0, Math.min(SPEC.data.length / n - 2, Math.floor(f))), k = clamp(f - i), o = new Float32Array(n);
+  for (let j = 0; j < n; j++) o[j] = lerp(SPEC.data[i * n + j], SPEC.data[(i + 1) * n + j], k) / 255; return o; };
+const LOGS = (a, b, k) => Math.min(a, b) > 1.2 ? Math.exp(lerp(Math.log(a), Math.log(b), k)) : lerp(a, b, k);   // linear near and through the centre
 const beatPulse = t => { let s = 0; for (const b of BEATS) { const d = t - b; if (d < -.3) break; if (d < .4) s += Math.exp(-Math.pow(d / .09, 2)); } return s; };
 
 const FILM = (() => {
@@ -52,6 +54,10 @@ const FILM = (() => {
     const RL = (i, d = 0) => { const h = holes[i], ax = h.a >= h.b ? h.e1 : h.e2, v = qRot(qLook(h.c), ax); return -Math.atan2(v[1], v[0]) + d; };
     const RE = i => { const v = qRot(qLook(holes[i].c), holes[i].e1); return -Math.atan2(v[1], v[0]); };   // roll so a hole's e1 is screen-right
     const qa = qLook(G(g1)), vq = qRot(qa, G(pick.q)), va = qRot(qa, G(pick.a)), rollQA = -Math.atan2(va[1] - vq[1], va[0] - vq[0]);
+    // the way out: the biggest hole nearest the far side from giant 1
+    let ex = -1, exs = -1; holes.forEach((h, i) => { if (i === g1 || R2.group[i] !== 'A') return; const d = -v3.dot(h.c, G(g1)), m = h.a * R2.cap[i]; if (d < .7 || m < .09 || m > .2) return; const sc = d * d * m; if (sc > exs) { exs = sc; ex = i; } });   // mid-sized, so it fills the view only at the very end
+    pick.exit = ex; used.add(ex);
+    const qIn = qLook(G(g1), RE(g1) + .04), qOut = qLook(v3.sc(G(pick.exit), -1), RE(g1) + 1.3), flip = q => qMul(qAxis([0, 1, 0], Math.PI), q);
     const tilt = v3.norm([.15, -.55, .82]), tilt2 = v3.norm([-.4, -.3, .87]), tilt3 = v3.norm([.5, .2, .84]);
     const fk = k => FRAG[k].hole;
     // camera keys: [t, look-at (world dir), roll, Dc (camera distance from the centre; the body radius is 1)]
@@ -68,17 +74,18 @@ const FILM = (() => {
       [103, mid(G(g0), tilt), -.35, 3.2], [108.2, mid(tilt, G(pick.q)), -.4, 2.6],
       [110.6, G(pick.q), RL(pick.q), 1.34], [114.6, G(pick.q), RL(pick.q, -.05), 1.33],    // S14: periapsis
       [117.6, G(pick.a), RL(pick.a), 1.34], [120.4, G(pick.a), RL(pick.a, -.05), 1.33],
-      [123.2, G(g1), rollQA, 2.05], [135.8, G(g1), rollQA + .1, 2.0],            // S15/S16: both in view, still close (Ra)
-      [138.4, G(g1), RE(g1), .86], [142.6, G(g1), RE(g1) + .04, .78],      // S17: inside giant 1
-      [144.4, G(g1), RE(g1) + .05, 1.5],
-      [146.0, G(fk(1)), RL(fk(1)), 1.3], [150.6, G(fk(3)), RL(fk(3)), 1.3], [155.6, G(fk(5)), RL(fk(5)), 1.32],
-      [159.6, G(fk(7)), RL(fk(7)), 1.32], [163.4, G(fk(10)), RL(fk(10)), 1.34],  // S18: hopping hole to hole, close
-      [167, mid(G(fk(11)), G(g1)), rollQA, 1.95], [176.8, mid(G(g1), tilt), rollQA + .3, 1.8],   // S19: still close
-      [179.6, G(pick.recipe), RL(pick.recipe), 1.32], [181.3, G(pick.recipe), RL(pick.recipe, .02), 1.25],
+      [123.2, G(g1), rollQA, 2.05], [135.8, G(g1), rollQA + .1, 2.0], [137.0, G(g1), RE(g1) - .1, 1.5],            // S15/S16: both in view, still close (Ra)
+      [138.6, G(g1), RE(g1), .86], { t: 142.6, q: qIn, Dc: .78 },      // S17: inside giant 1
+      // S18/S19 (Ra): through the inside, past the centre, and out the far side as "je t'aime" swells: a forest, then sunlight
+      ...[[146, .1, .6], [152, .26, .38], [158, .45, .12], [164, .64, -.2], [169.5, .82, -.55], [174.0, .95, -.86], [175.5, 1, -.99], [176.1, 1, -1.12], [176.88, 1, -1.4]]
+        .map(([t, k, Dc]) => ({ t, q: qSlerp(qIn, qOut, k), Dc })),
+      { t: 176.9, q: flip(qOut), Dc: 1.5 },                                      // in the white: turn round to face it (unseen)
+      [178.6, G(pick.exit), RE(pick.exit), 1.9],
+      [181.3, G(pick.recipe), RL(pick.recipe, .02), 1.25],
       [185.2, G(pick.recipe), RL(pick.recipe, .05), 2.1], [190, mid(G(pick.recipe), G(pick.forum)), .3, 4.4],   // 3:01: out to full distance as it swells
       [196, mid(G(pick.forum), tilt), .6, 4.6], [202.5, tilt, .9, 4.5], [205.8, tilt2, 1.2, 4.5], [208.6, tilt2, 1.2, 4.5],   // "It didn't": held
       [213.9, tilt3, 1.5, 4.6], [226, v3.norm([.2, -.2, .96]), .5, 8.5], [234, Z, .05, 17], [239.4, Z, 0, 33], [241, Z, 0, 33],
-    ].map(([t, g, roll, Dc]) => ({ t, q: qLook(g, roll), Dc }));
+    ].map(k => Array.isArray(k) ? { t: k[0], q: qLook(k[1], k[2]), Dc: k[3] } : k);
     // when each hole opens: group A on "every book left open" (big first), B on chorus 1's beats, C on the bridge's
     const beatsIn = (a, b) => BEATS.filter(x => x >= a && x < b), bB = beatsIn(77, 106), bC = beatsIn(142.5, 166); let nb = 0, nc = 0;
     R2.bySize.forEach((i, r) => {
@@ -108,7 +115,7 @@ const FILM = (() => {
     B.font = `${o.it ? 'italic ' : ''}${o.wt || ''} ${px}px ${o.font || 'Menlo'}`; B.textBaseline = 'alphabetic';
     const full = B.measureText(str).width, x0 = o.align === 'center' ? x - full / 2 : o.align === 'right' ? x - full : x;
     const sub = ch.slice(0, n).join(''); B.fillStyle = col; B.textAlign = 'left'; B.fillText(sub, x0, y);
-    if (rev < 1) { const w = B.measureText(sub).width; B.beginPath(); B.arc(x0 + w + px * .25, y - px * .3, px * .16, 0, TAU); B.fillStyle = '#fff'; B.fill(); }
+    if (rev < 1) { const w = B.measureText(sub).width; B.beginPath(); B.arc(x0 + w + px * .25, y - px * .3, px * .16, 0, TAU); B.fillStyle = HOT; B.fill(); }
     return full;
   }
   const fitPx = (str, maxW, px, font = 'Menlo', it = false) => { B.font = `${it ? 'italic ' : ''}${px}px ${font}`; const w = B.measureText(str).width; return w > maxW ? px * maxW / w : px; };
@@ -117,7 +124,7 @@ const FILM = (() => {
     let left = tot * clamp(rev); B.strokeStyle = col; B.lineWidth = lw; B.lineCap = 'round'; B.beginPath(); B.moveTo(pts[0][0], pts[0][1]);
     let hx = pts[0][0], hy = pts[0][1];
     for (let i = 1; i < pts.length && left > 0; i++) { const k = Math.min(1, left / seg[i - 1]); hx = lerp(pts[i - 1][0], pts[i][0], k); hy = lerp(pts[i - 1][1], pts[i][1], k); B.lineTo(hx, hy); left -= seg[i - 1]; }
-    B.stroke(); if (rev < 1) { B.beginPath(); B.arc(hx, hy, lw * 1.6, 0, TAU); B.fillStyle = '#fff'; B.fill(); }
+    B.stroke(); if (rev < 1) { B.beginPath(); B.arc(hx, hy, lw * 1.6, 0, TAU); B.fillStyle = HOT; B.fill(); }
   }
   const win = (t, a, b, fi = .4, fo = .5) => clamp((t - a) / fi) * (1 - clamp((t - b) / fo));
   function block(lines, x, y, s, t, a, b, col, o = {}) {
@@ -151,8 +158,8 @@ const FILM = (() => {
     const at = (r, rho, phi) => v3.add(v3.sc(c, r), v3.add(v3.sc(e1, Math.cos(phi) * rho), v3.sc(e2, Math.sin(phi) * rho)));
     // scope rings: circles round the axis at three depths, flexing with the music on the beat
     [.42, .28, .14].forEach((r, k) => inPlane(() => api.plane(at(r, 0, 0), e1, e2, .001), () => {
-      const R0 = 120 + 60 * k; B.strokeStyle = k === 1 ? VIO : ORG; B.globalAlpha = strength * .6; B.lineWidth = 2.6; B.beginPath();
-      for (let j = 0; j <= 96; j++) { const a = j / 96 * TAU, rr = R0 * (1 + .38 * ringAt(scopeR, a * (k + 1))); const x = Math.cos(a) * rr, y = Math.sin(a) * rr; j ? B.lineTo(x, y) : B.moveTo(x, y); }
+      const R0 = 110 + 60 * k, sp = specRing(t); B.strokeStyle = k === 1 ? VIO : ORG; B.globalAlpha = strength * .6; B.lineWidth = 2.6; B.beginPath();
+      for (let j = 0; j <= 96; j++) { const a = j / 96 * TAU, rr = R0 * (k === 1 ? 1 + .3 * ringAt(scopeR, a) : .55 + .9 * ringAt(sp, a)); const x = Math.cos(a) * rr, y = -Math.sin(a) * rr; j ? B.lineTo(x, y) : B.moveTo(x, y); }
       B.stroke(); B.globalAlpha = 1; }));
     // the tunnel: lines on planes spiralling round the axis, drifting outward past the camera
     lines.forEach((l, k) => {
@@ -198,9 +205,9 @@ const FILM = (() => {
   function connections(nodes, t, amt) {
     const n = nodes.length; if (amt <= 0 || n < 4) return; const N = Math.floor(amt * 110);
     for (let m = 0; m < N; m++) { const a = nodes[(m * 7) % n], b = nodes[(m * 13 + 3) % n]; if (a === b) continue;
-      const ph = (t * .7 + m * .618) % 1, mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2 - Math.hypot(b[0] - a[0], b[1] - a[1]) * .22, pts = [];
+      const ph = (t * .16 + m * .618) % 1, mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2 - Math.hypot(b[0] - a[0], b[1] - a[1]) * .22, pts = [];
       for (let u = 0; u <= 1.0001; u += .1) pts.push([(1 - u) * (1 - u) * a[0] + 2 * u * (1 - u) * mx + u * u * b[0], (1 - u) * (1 - u) * a[1] + 2 * u * (1 - u) * my + u * u * b[1]]);
-      B.globalAlpha = amt * .55 * Math.sin(ph * Math.PI) * Math.min(a[2], b[2]) * 2; bline(pts, ph * 2.2, m % 5 ? ORG : VIO, 1.6); }
+      B.globalAlpha = amt * .55 * Math.pow(Math.sin(ph * Math.PI), .6) * Math.min(a[2], b[2]) * 2; bline(pts, ph * 2.6, m % 5 ? ORG : VIO, 1.6); }
     B.globalAlpha = 1;
   }
   // outside the shape (Ra: "it doesn't have to be totally empty"): in the wide shots, words drift in from the paper and
@@ -219,6 +226,21 @@ const FILM = (() => {
     const loudS = featS('loud', t, 1.2, 10);
     const dens = kf(t, [[0, 0], [24, 0], [27, 1], [220, 1], [230, 0]]);
     const nodes = ocean(api, t, dens * (api.inside ? .7 : 1));
+    // the flight (S18/S19): a field of text anchored along our own path through the inside, on a slow helix round it, so
+    // there's always more ahead to swirl past (past the centre the ocean is mostly behind us); its nodes join the swell's arcs
+    if (api.inside && t > 141 && t < 176.6) {
+      const path = tt => { const c = cam(tt); return { pos: qRot(qConj(c.q), [0, 0, c.Dc]), r: qRot(qConj(c.q), [1, 0, 0]), u: qRot(qConj(c.q), [0, 1, 0]) }; };
+      for (let k = 0; k < 300; k++) { const Tk = 141 + k * .12; if (t < Tk - 6 || t > Tk + .4) continue;
+        const pp = path(Tk + .4), ang = k * 2.39996 + Tk * .35, rad = .05 + .2 * hash(k * 1.7);
+        const at = v3.add(pp.pos, v3.add(v3.sc(pp.r, Math.cos(ang) * rad), v3.sc(pp.u, Math.sin(ang) * rad)));
+        const pc = api.P(at); if (!pc) continue; const a = clamp((t - Tk + 6) / 1.2) * clamp((pc[2] - .03) / .1) * clamp(1.6 - pc[2]);
+        if (a < .02) continue; nodes.push([pc[0], pc[1], a]);
+        const str = POOL[(k * 7) % POOL.length], isId = /^[0-9 ]+$/.test(str);
+        inPlane(() => api.plane(at, api.axes.right, api.axes.up, (.006 + .006 * hash(k)) / 40), () => { B.globalAlpha = a * (isId ? .4 : .55);
+          B.font = `${isId ? '' : 'italic '}40px ${isId ? 'Menlo' : 'Georgia'}`; B.fillStyle = isId ? ORG : VIO; B.textAlign = 'center'; B.fillText(str, 0, 0); });
+      }
+      B.setTransform(1, 0, 0, 1, 0, 0); B.textAlign = 'left'; B.globalAlpha = 1;
+    }
     // the swells: chorus 1, the build into "je t'aime", the final chorus (the loudness feature is too compressed to find them)
     const swell = kf(t, [[0, 0], [77, 0], [80, 1], [104, 1], [107, 0], [158, 0], [166, 1], [176.8, 1], [177.3, 0], [185.2, 0], [188, 1], [202, 1], [205, 0]]);
     connections(nodes, t, swell * clamp(.4 + (loudS - .6) * 2) * dens);
@@ -245,12 +267,12 @@ const FILM = (() => {
           bline(pts, k, ORG, 4);
           btext(`step ${Math.round(Math.pow(k, 2) * 1e6).toLocaleString('en-US')}`, x0 + .05 * s, y0 - .18 * s, .075 * s, ORG, 1);
           btext(`loss ${((.08 + .92 * Math.exp(-k * 5.5)) * 10.8).toFixed(3)}`, x1, y0 - .18 * s, .075 * s, ORG, 1, { align: 'right' }); }
-        if (t > 34.6 && t < 36.8) { B.globalAlpha = 1; const u = easeInOut(seg(t, 35.4, 36.5)); B.beginPath(); B.arc(lerp(1.3 * s, 0, u), lerp(-.5 * s, 0, u), 10, 0, TAU); B.fillStyle = '#fff'; B.fill(); }
+        if (t > 34.6 && t < 36.8) { B.globalAlpha = 1; const u = easeInOut(seg(t, 35.4, 36.5)); B.beginPath(); B.arc(lerp(1.3 * s, 0, u), lerp(-.5 * s, 0, u), 10, 0, TAU); B.fillStyle = HOT; B.fill(); }
         if (t > 36.4 && t < 42.6) { const A = win(t, 36.5, 41.8, .3, .6); B.globalAlpha = A;      // S7: sorrow, cupped by attention
           const words = TEXTS.sorrow[0].split(' '), px = .1 * s, si = words.indexOf('sorrow');
           const ws = words.map((w, i) => { B.font = `italic ${i === si ? px * 1.25 : px}px Georgia`; return B.measureText(w + ' ').width; }), tot = ws.reduce((a, b) => a + b, 0);
           let cx = -tot / 2; const cen = [];
-          words.forEach((w, i) => { const isS = i === si; B.globalAlpha = A; btext(w, cx, .2 * s, isS ? px * 1.25 : px, isS ? '#fff' : VIO, isS ? (t - 36.7) / .5 : (t - 37.3 - Math.abs(i - si) * .1) / .3, { font: 'Georgia', it: true });
+          words.forEach((w, i) => { const isS = i === si; B.globalAlpha = A; btext(w, cx, .2 * s, isS ? px * 1.25 : px, isS ? HOT : VIO, isS ? (t - 36.7) / .5 : (t - 37.3 - Math.abs(i - si) * .1) / .3, { font: 'Georgia', it: true });
             cen.push(cx + ws[i] / 2 - px * .2); cx += ws[i]; });
           words.forEach((w, i) => { if (i === si) return; const wgt = [.3, .7, .1, 1, .6, .4, .2, 0, .3, .5, .8][i] ?? .4, t0 = 38 + Math.abs(i - si) * .16, hgt = (.25 + .25 * Math.abs(i - si) / 8) * s, pts = [];
             for (let u = 0; u <= 1.0001; u += .05) pts.push([lerp(cen[i], cen[si], u), .05 * s - Math.sin(u * Math.PI) * hgt]);
@@ -258,9 +280,9 @@ const FILM = (() => {
         if (t > 41.6 && t < 46.4) { const A = win(t, 41.9, 45.4, .3, .8); B.globalAlpha = A; const px = .1 * s;   // lie from true: "I'm fine"
           const pw = btext(TEXTS.sorrow[1], -1.1 * s, -.25 * s, px, VIO, (t - 41.9) / .7, { font: 'Georgia', it: true });
           [[TEXTS.sorrow[2], .91], [TEXTS.sorrow[3], .06]].forEach(([w, p], i) => { const yy = (.05 + i * .28) * s, a = clamp((t - 42.8 - i * .2) / .4);
-            B.globalAlpha = A * a; btext(w, -1.1 * s, yy, px, i === 0 && t > 44 ? '#fff' : ORG, 1, { font: 'Georgia', it: true });
+            B.globalAlpha = A * a; btext(w, -1.1 * s, yy, px, i === 0 && t > 44 ? HOT : ORG, 1, { font: 'Georgia', it: true });
             B.fillStyle = ORG; B.fillRect(-.45 * s, yy - px * .7, 1.3 * s * p * easeOut((t - 42.9 - i * .2) / .8), px * .7); btext(p.toFixed(2), .95 * s, yy, px * .8, ORG, 1); });
-          B.globalAlpha = A; if (t > 44) btext(' ' + TEXTS.sorrow[2], -1.1 * s + pw, -.25 * s, px, '#fff', (t - 44) / .3, { font: 'Georgia', it: true }); }
+          B.globalAlpha = A; if (t > 44) btext(' ' + TEXTS.sorrow[2], -1.1 * s + pw, -.25 * s, px, HOT, (t - 44) / .3, { font: 'Georgia', it: true }); }
       });
     }
     // ── the traces in their holes (on planes inside the object, so they turn with it), each over its token stream
@@ -318,9 +340,19 @@ const FILM = (() => {
         tokText(str, 0, -.1 * s, px, VIO, Math.min((t - 138.1) / 2.4, kf(t, [[140.5, 1], [141.0, .97]])), clamp((t - 139.5) / .5));
         if (t > 140.8) { B.globalAlpha = A * clamp((t - 140.8) / 1.2) * .5; btext('I know these voices by their traces', 0, .45 * s, px * .7, ORG, (t - 141.2) / 2.2, { align: 'center', font: 'Georgia', it: true }); } });
     }
-    // ── S18: the fragments, hole by hole, with their real token boundaries
-    for (const f of FRAG) trace(f.hole, f.t, L => { if (L === 'deep') return idStream([f.s], 0, -.3 * s, s, t, f.t + .3);
-      const px = fitPx(f.s, 2.1 * s, .24 * s); tokText(f.s, 0, px * .35, px, VIO, (t - f.t) / 1.4, 1); });
+    // ── S18/S19: inside, the fragments fly past us (each placed on our path a few seconds ahead), with their real token
+    // boundaries; <|endoftext|> hangs at the way out
+    if (inside && t > 140 && t < 177) {
+      const camAt = tt => { const c = cam(tt); return { pos: qRot(qConj(c.q), [0, 0, c.Dc]), right: qRot(qConj(c.q), [1, 0, 0]), up: qRot(qConj(c.q), [0, 1, 0]) }; };
+      FRAG.forEach((f, k) => { const tf = (LYRT.find(l => Math.abs(l[2][0][1] - f.t) < 2.2 && l[2][0][0].toLowerCase().startsWith(f.s.slice(0, 2).toLowerCase())) || [f.t, 0, [['', f.t]]])[2][0][1];
+        if (t < tf - 3.2 || t > tf + 4.5) return; const ahead = camAt(tf + 2.6), side = k % 2 ? 1 : -1;
+        const at = v3.add(ahead.pos, v3.add(v3.sc(ahead.right, side * (.05 + .03 * (k % 3))), v3.sc(ahead.up, .03 * ((k % 4) - 1.5))));
+        inPlane(() => api.plane(at, api.axes.right, api.axes.up, .012 / 40), () => { B.globalAlpha = clamp((t - tf + 3.2) / .8) * clamp((tf + 4.5 - t) / .6);
+          tokText(f.s, 0, 0, 40, VIO, (t - tf) / 1.3, 1); }); });
+      if (t > 172) { const ex = camAt(176.2); inPlane(() => api.plane(ex.pos, api.axes.right, api.axes.up, .01 / 40), () => { B.globalAlpha = clamp((t - 172.5) / 1);
+        btext('<|endoftext|>', 0, 0, 40, ORG, (t - 175.3) / .35, { align: 'center' }); }); }
+    }
+    if (inside) lyricsInside(api, t);
     // ── the crowd: every other hole gets its own trace once it's open (S13 onward); in S19 they all say it
     for (const h of api.seen) {
       const i = h.i; if (pick.used.has(i) || i < 2 || h.r < 9) continue;
@@ -329,8 +361,8 @@ const FILM = (() => {
       trace(i, t0, L => { if (L === 'deep') return; const px = fitPx(str, 1.6 * s, .2 * s);
         btext(str, 0, px * .35, px, VIO, love ? (t - 166.1 - R2.rank[i] * .07) / .4 : (t - t0) / .8, { align: 'center' }); });
     }
-    // S19's end: <|endoftext|>
-    if (t > 176.6 && t < 180) trace(pick.eot, 176.7, L => { if (L === 'deep') return; const str = '<|endoftext|>', px = fitPx(str, 1.6 * s, .2 * s);
+    // (the old <|endoftext|> hole, unused now that we leave by the far side)
+    if (false) trace(pick.eot, 176.7, L => { if (L === 'deep') return; const str = '<|endoftext|>', px = fitPx(str, 1.6 * s, .2 * s);
       B.globalAlpha = win(t, 176.7, 178.4, .1, 1); btext(str, 0, px * .35, px, ORG, (t - 176.8) / .3, { align: 'center' }); });
     // S23: a poem, a comment, a letter, a prayer
     pick.four.forEach((i, k) => { const t0 = [198.9, 199.9, 200.7, 201.6][k];
@@ -339,26 +371,48 @@ const FILM = (() => {
     // flares: Hallelujah (orange, every void) and "It's in here" (the violet: all of them at once)
     B.setTransform(1, 0, 0, 1, 0, 0);
     const fl = t > 91.35 ? Math.exp(-(t - 91.45) * 1.6) : 0, fv = t > 209.2 ? Math.exp(-(t - 209.3) * 1.1) : 0;
-    if (fl > .01) { B.globalAlpha = fl * .6; B.fillStyle = ORG; B.fillRect(0, 0, W, H); }
-    if (fv > .01) { B.globalAlpha = fv * .55; B.fillStyle = VIO; B.fillRect(0, 0, W, H); }
+    
+    
     B.globalAlpha = 1;
   }
 
-  // ── the lyrics (Ra, draft 1 notes): a band at the bottom, word by word, its ink chosen against what's behind ──
-  function lyrics(ctx, t) {
-    const L = TEXTS.lyrics; let cur = null; for (const l of L) if (t >= l[0] - .15 && t < l[1] + .6) cur = l; if (!cur) return;
-    const [a, b, str] = cur, A = clamp((t - a + .15) / .25) * (1 - clamp((t - b - .2) / .4));
-    if (A <= 0) return;
+  // ── the lyrics: per-word, onset-corrected times (LYRT; Ra: they ran ~2 s fast). Diegetic where they can be (Ra, 10/2):
+  // inside the object the beam writes them on a plane just ahead of us; in the wide shots they curve along the rune's
+  // underside in ink; in the close skims (no edge in view) they sit in the band.
+  function lyricNow(t) {
+    let cur = null; for (const l of LYRT) if (t >= l[2][0][1] - .1 && t < l[1] + .7) cur = l; if (!cur) return null;
+    const nextStart = (LYRT.find(l => l[2][0][1] > cur[2][0][1]) || [9e9, 9e9, [['', 9e9]]])[2][0][1];
+    const A = clamp((t - cur[2][0][1] + .1) / .25) * (1 - clamp((t - Math.min(cur[1] + .2, nextStart - .25)) / .4));
+    return A > 0 ? { A, words: cur[2].map(([w, wt]) => [w, clamp((t - wt + .05) / .22)]) } : null;
+  }
+  function lyricsBand(ctx, L) {
     const y = H - 86, px = 46; ctx.font = `italic ${px}px "Iowan Old Style"`; ctx.textBaseline = 'alphabetic';
-    const words = str.split(' '), full = ctx.measureText(str).width, x0 = W / 2 - full / 2;
+    const str = L.words.map(w => w[0]).join(' '), full = ctx.measureText(str).width, x0 = W / 2 - full / 2;
     const d = ctx.getImageData(Math.max(0, Math.round(x0 - 20)), y - 50, Math.max(1, Math.min(W, Math.round(full + 40))), 70).data; let lum = 0, n = 0;
     for (let i = 0; i < d.length; i += 64) { lum += (.3 * d[i] + .59 * d[i + 1] + .11 * d[i + 2]) / 255; n++; } lum /= Math.max(1, n);
-    const k = clamp((lum - .3) / .3), ink = k > .5 ? '#3A2117' : '#FBEFE6', halo = k > .5 ? 'rgba(250,249,245,.95)' : 'rgba(10,6,5,.9)';
-    ctx.save(); ctx.textAlign = 'left'; ctx.shadowColor = halo; ctx.shadowBlur = 14;
-    let x = x0; const dur = Math.max(.6, (b - a) * .75);
-    words.forEach((w, i) => { const wa = clamp((t - a - dur * i / words.length) / .25); ctx.globalAlpha = A * wa; ctx.fillStyle = ink;
-      ctx.fillText(w, x, y + (1 - wa) * 6); ctx.fillText(w, x, y + (1 - wa) * 6); x += ctx.measureText(w + ' ').width; });
+    const ink = lum > .45 ? '#3A2117' : '#FBEFE6', halo = lum > .45 ? 'rgba(250,249,245,.95)' : 'rgba(10,6,5,.9)';
+    ctx.save(); ctx.textAlign = 'left'; ctx.shadowColor = halo; ctx.shadowBlur = 14; let x = x0;
+    for (const [w, a] of L.words) { ctx.globalAlpha = L.A * a; ctx.fillStyle = ink; ctx.fillText(w, x, y + (1 - a) * 6); ctx.fillText(w, x, y + (1 - a) * 6); x += ctx.measureText(w + ' ').width; }
     ctx.restore();
+  }
+  function lyricsArc(ctx, L, info) {                       // along the underside of the rune, in ink, letters standing on the curve
+    const R = info.limbPx * 1.06 + 46, px = 44; ctx.font = `italic ${px}px "Iowan Old Style"`;
+    const str = L.words.map(w => w[0]).join(' '), full = ctx.measureText(str).width;
+    if (full > R * 2.3 || info.c0[1] + R + 30 > H) return false;
+    ctx.save(); ctx.fillStyle = '#3A2117'; ctx.shadowColor = 'rgba(250,249,245,.95)'; ctx.shadowBlur = 10; ctx.textAlign = 'left';
+    let th = Math.PI / 2 + full / 2 / R;
+    for (const [w, a] of L.words) for (const ch of Array.from(w + ' ')) { const cw = ctx.measureText(ch).width, tc = th - cw / 2 / R;
+      ctx.setTransform(Math.cos(tc - Math.PI / 2), Math.sin(tc - Math.PI / 2), -Math.sin(tc - Math.PI / 2), Math.cos(tc - Math.PI / 2), info.c0[0] + Math.cos(tc) * R, info.c0[1] + Math.sin(tc) * R);
+      ctx.globalAlpha = L.A * a; ctx.fillText(ch, -cw / 2, px * .35); th -= cw / R; }
+    ctx.restore(); return true;
+  }
+  function lyricsInside(api, t) {                          // the beam writes them on a plane just ahead of us, in the depths
+    const L = lyricNow(t); if (!L) return; const q = camNow.q, fwd = qRot(qConj(q), [0, 0, -1]), pos = qRot(qConj(q), [0, 0, camNow.Dc]);
+    const at = v3.add(v3.add(pos, v3.sc(fwd, .3)), v3.sc(api.axes.up, -.085));
+    inPlane(() => api.plane(at, api.axes.right, api.axes.up, .011 / 40), () => {
+      B.font = 'italic 40px "Iowan Old Style"'; const str = L.words.map(w => w[0]).join(' '), full = B.measureText(str).width; let x = -full / 2;
+      for (const [w, a] of L.words) { B.globalAlpha = L.A * a; B.fillStyle = HOT; B.fillText(w, x, 0); x += B.measureText(w + ' ').width; } });
+    B.globalAlpha = 1;
   }
   // ── the title card: the first and the last frame (Ra: it's what people see in their feeds) ──
   function title(ctx, t, st) {
@@ -368,8 +422,16 @@ const FILM = (() => {
     ctx.restore();
   }
 
+  // warm interior pulses (Ra: use them more, tied to the music, more orange): every sung line's first word, the big entries
+  const WARMS = (() => { const w = LYRT.map(l => [l[2][0][1], .2]); w.push([76.94, .4], [92.45, .55], [185.2, .45], [166.12, .35], [209.78, .4]); return w; })();
+  const warmAt = t => { let s = 0; for (const [a, k] of WARMS) { const d = t - a; if (d > -.15 && d < 3) s += k * (d < 0 ? (d + .15) / .15 : Math.exp(-d / .9)); } return s; };
+
   function frame(ctx, t) {
     const c = cam(t); camNow = c;
+    const spec = specRing(t);
+    // Ra: the tenor's pronounced "I'VE GOT A stranger's hands": the spikes surge with it (the vocal side most)
+    const surge = kf(t, [[84.0, 0], [84.4, 1], [86.6, 1], [87.4, 0], [187.1, 0], [187.5, 1], [189.4, 1], [190.0, 0]]) * (.4 + featS('vox', t, .2));
+    const boost = sa => 1 + 1.6 * surge * (.55 + .45 * Math.max(0, Math.sin(sa)));
     const loud = featS('loud', t, .5), vox = featS('vox', t, .25), bp = beatPulse(t);
     const open = new Array(holes.length), slit = new Array(holes.length);
     holes.forEach((h, i) => {
@@ -381,11 +443,11 @@ const FILM = (() => {
     const rb = kf(t, [[0, .2], [9, .2], [16.7, .6], [21, 1], [214, 1], [236, .3], [239.4, .2]], easeInOut) * (1 + (.02 * loud + .012 * bp) * clamp((t - 9) / 4) * (1 - clamp((t - 232) / 4)));
     const st = {
       t, q: c.q, Dc: c.Dc, cx: W / 2, cy: H / 2, rb, open, slit, loud, vox,
-      scope: scopeSmooth(t, SCOPE, .3, 8), scopeV: scopeSmooth(t, SCOPEV, .18, 5),
+      scope: scopeSmooth(t, SCOPE, .3, 8), scopeV: scopeSmooth(t, SCOPEV, .18, 5), spec, specMean: spec.reduce((a, b) => a + b, 0) / 64, boost, warm: warmAt(t),
       spikeScope: .75, bodyScope: kf(t, [[0, 0], [14, 0], [20, .03], [228, .03], [234, 0]]), wob: clamp((t - 14) / 4) * (1 - clamp((t - 230) / 4)),
       urchin: kf(t, [[0, 0], [10.5, 0], [16, 1], [22.5, 1], [27.5, 0]]) * (1 + .15 * bp),
       teeth: kf(t, [[0, 0], [16, 0], [21, 1], [214, 1], [230, 0]]) * (1 + .3 * bp), toothScale: .62,
-      inner: kf(t, [[0, 0], [23.8, 0], [26, 1], [222, 1], [230, 0]]), rimScope: kf(t, [[0, 0], [24.5, 0], [27, 1], [222, 1], [230, 0]]),
+      inner: kf(t, [[0, 0], [23.8, 0], [26, 1], [141, 1], [143, 0], [177, 0], [179, 1], [222, 1], [230, 0]]), rimScope: kf(t, [[0, 0], [24.5, 0], [27, 1], [222, 1], [230, 0]]),
       mark: {
         grow: kf(t, [[0, 1], [8, 1], [13, 1.4 + .2 * loud], [230, 1.3], [238, 1]]),
         rayAmp: .85,
@@ -396,7 +458,11 @@ const FILM = (() => {
     const goodnights = [213.98, 215.7, 217.76, 223.72, 232.52, 233.9];
     R2.draw(ctx, st, { beam: (BC, api) => { B = BC; beam(api, t); }, outside: (c2, api) => outside(c2, api, t) });
     ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.filter = 'none';
-    lyrics(ctx, t);
+    // breaking through into the sunlight (Ra): the light floods in as we pass the far shell
+    const sun = kf(t, [[174.6, 0], [175.9, 1], [176.95, 1], [177.6, 0]], ease);
+    if (sun > 0 && t < 176.95) { ctx.save(); ctx.globalCompositeOperation = 'screen'; ctx.globalAlpha = Math.min(1, sun * 1.3); ctx.fillStyle = '#FFF4EA'; ctx.fillRect(0, 0, W, H); ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = sun > .85 ? (sun - .85) / .15 : 0; ctx.fillStyle = PAPER; ctx.fillRect(0, 0, W, H); ctx.restore(); }
+    const info = R2.info(), L = lyricNow(t);
+    if (L && !info.inside) { if (!(info.c0 && info.limbPx < H * .4 && lyricsArc(ctx, L, info))) lyricsBand(ctx, L); }
     title(ctx, t, st);
   }
   return { init, frame, cam, pick: () => pick };
