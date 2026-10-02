@@ -57,12 +57,21 @@ const RUNE2D = (() => {
   const MS = 24.2 / .2, MARK_A = [8.6, 49.1, 80.1, 115.7, 146.2, 179, 213.4, 235.8, 267, 302.9, 317.9, 346.2].map(a => a * Math.PI / 180);
   const rayOf = a => { let best = 0, bd = 9; MARK_A.forEach((m, j) => { const d = Math.abs(Math.atan2(Math.sin(a - m), Math.cos(a - m))); if (d < bd) { bd = d; best = j; } }); return best; };
   const MW = MARK_PTS.map(([bx, by]) => { const x = (bx - 124) / MS, y = -(by - 124) / MS; return { x, y, ray: rayOf(Math.atan2(y, x)) }; });
-  const RAYS = MARK_A.map((a, j) => {
-    const n = MW.length, dx = Math.cos(a), dy = Math.sin(a); let st = 0; while (!(MW[st].ray === j && MW[(st + n - 1) % n].ray !== j)) st = (st + 1) % n;
-    const pts = []; for (let k = 0; k < n && MW[(st + k) % n].ray === j; k++) { const m = MW[(st + k) % n]; pts.push([m.x * dx + m.y * dy, -m.x * dy + m.y * dx]); }
-    const umax = Math.max(...pts.map(p => p[0])), shaft = pts.filter(p => p[0] > .2 + (umax - .2) * .35 && p[0] < .2 + (umax - .2) * .6);
-    return { pts, len: umax - .2, half: Math.max(.01, ...shaft.map(p => Math.abs(p[1]))) };
-  });
+  // Split the outline at its 12 notches (the innermost points, between rays) and close each ray through the centre: the 12
+  // wedges together ARE the mark, junction included.
+  const RAYS = (() => {
+    const n = MW.length, r = MW.map(m => Math.hypot(m.x, m.y)), th = MW.map(m => Math.atan2(m.y, m.x)), notch = [];
+    for (const i of r.map((v, i) => i).sort((a, b) => r[a] - r[b])) {
+      if (notch.length === 12) break; if (notch.every(k => Math.abs(Math.atan2(Math.sin(th[i] - th[k]), Math.cos(th[i] - th[k]))) > .26)) notch.push(i); }
+    notch.sort((a, b) => a - b);
+    const out = new Array(12);
+    notch.forEach((s0, q) => { const s1 = notch[(q + 1) % 12], seg = []; for (let k = s0; ; k = (k + 1) % n) { seg.push(MW[k]); if (k === s1) break; }
+      const tip = seg.reduce((m, p) => Math.hypot(p.x, p.y) > Math.hypot(m.x, m.y) ? p : m), j = rayOf(Math.atan2(tip.y, tip.x)), a = MARK_A[j], dx = Math.cos(a), dy = Math.sin(a);
+      const pts = [[0, 0], ...seg.map(m => [m.x * dx + m.y * dy, -m.x * dy + m.y * dx])];
+      const umax = Math.max(...pts.map(p => p[0])), shaft = pts.filter(p => p[0] > .2 + (umax - .2) * .35 && p[0] < .2 + (umax - .2) * .6);
+      out[j] = { pts, len: umax - .2, half: Math.max(.01, ...shaft.map(p => Math.abs(p[1]))) }; });
+    return out;
+  })();
   // the other spikes use the same outlines without the junction at the root, so they stand alone on the skin
   RAYS.push(...RAYS.map(r => { const pts = r.pts.filter(p => p[0] >= .24); return { pts, len: r.len, half: r.half }; }));
   // the spikes: cluster teeth (on the membrane between ALL holes), an urchin for the opening, the mark's own 12 rays
