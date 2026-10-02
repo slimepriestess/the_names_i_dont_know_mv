@@ -28,6 +28,10 @@ function runeLayout(o = {}) {
   // 1. the rosette: a central opening at the focus, then ARMS log-spiral arms. Along each arm the holes shrink by a fixed
   //    ratio and sit almost touching, stretched along the arm, so near the centre they read as petals.
   const ARMS = o.arms ?? 8, A0 = o.big ?? .3, PIT0 = o.armPitch ?? .78;
+  // Ra: the spiral extrapolated one size up: one or two maximal holes, big chunks out of the sphere so the inside shows
+  for (const [th, ph, a, el] of o.giants ?? [[1.5, .9, .62, 1.3], [2.35, 3.7, .5, 1.45]]) {
+    const c = dirAt(th, ph); holes.push({ c, e1: flow(th, ph), a, b: a / el });
+  }
   holes.push({ c: F, e1: E1, a: o.core ?? .17, b: o.core ?? .17 });
   for (let m = 0; m < ARMS; m++) {
     // organic: every arm grows a little differently (its own shrink ratio, curl and length)
@@ -78,6 +82,19 @@ function runeLayout(o = {}) {
     teeth.push({ c, dir, r: Math.min(g, .07) * .9, len: Math.min(g, .07) * (1.2 + 5 * w) * (.8 + .4 * R()), cl, w });
     for (let i = 0; i < N; i++) tg[i] = Math.min(tg[i], ang(cand[i], c) - Math.min(g, .07) * 1.05);
   }
-  return { F, holes, teeth, clusters: cent };
+  // the migrating spikes: the sea urchin. 12 start on the mark's rays (flat, in the view plane: the starburst), the rest
+  // point every way in 3D. Each ends inside one tooth cluster, short. Ra: "start out with this spikey sea urchin shape,
+  // then the inside inflates and the spikes migrate to specific regions as the holes open up"
+  const MARK = [8.6, 49.1, 80.1, 115.7, 146.2, 179, 213.4, 235.8, 267, 302.9, 317.9, 346.2], MR = [118.4, 121.1, 116.1, 129.3, 119.9, 117.8, 111.6, 117, 118, 116.5, 121.1, 120.5];
+  const mig = [];
+  for (let j = 0; j < (o.nMig ?? 44); j++) {
+    let d0, L0, isMark = j < 12;
+    if (isMark) { const a = MARK[j] * Math.PI / 180; d0 = [Math.cos(a), Math.sin(a), 0]; L0 = MR[j] / 24.2 - 1; }
+    else { const z = 1 - 2 * R(), r = Math.sqrt(1 - z * z), a = R() * Math.PI * 2; d0 = [Math.cos(a) * r, Math.sin(a) * r, z]; L0 = 1.6 + 2.2 * R(); }
+    const cl = Math.floor(R() * cent.length), q = cent[cl].c;
+    const off = norm([0, 1, 2].map(i => q[i] + (R() - .5) * cent[cl].spread * 1.1));         // somewhere in its cluster
+    mig.push({ d0, L0, d1: off, L1: .14 + .22 * R(), key: R() * .55, cl, isMark, seed: R() * 100 });
+  }
+  return { F, holes, teeth, clusters: cent, mig };
 }
 if (typeof module !== 'undefined') module.exports = { runeLayout };
