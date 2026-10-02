@@ -27,16 +27,20 @@ function runeLayout(o = {}) {
   const fits = (c, r) => holes.every(h => ang(c, h.c) - (h.a + h.b) / 2 > r);
   // 1. the rosette: a central opening at the focus, then ARMS log-spiral arms. Along each arm the holes shrink by a fixed
   //    ratio and sit almost touching, stretched along the arm, so near the centre they read as petals.
-  const ARMS = o.arms ?? 8, Q = o.ratio ?? .77, A0 = o.big ?? .27, PIT = o.armPitch ?? .5;
+  const ARMS = o.arms ?? 8, A0 = o.big ?? .3, PIT0 = o.armPitch ?? .78;
   holes.push({ c: F, e1: E1, a: o.core ?? .17, b: o.core ?? .17 });
   for (let m = 0; m < ARMS; m++) {
-    let th = (o.core ?? .17) + A0 * .62, ph = m * Math.PI * 2 / ARMS + R() * .08, a = A0;
-    for (let i = 0; i < 14 && a > .03 && th < Math.PI - .2; i++) {
+    // organic: every arm grows a little differently (its own shrink ratio, curl and length)
+    const Q = .72 + .1 * R(), PIT = PIT0 + (R() - .5) * .25, LEN = 7 + Math.floor(R() * 8);
+    let th = (o.core ?? .17) + A0 * .62, ph = m * Math.PI * 2 / ARMS + (R() - .5) * .3, a = A0 * (.75 + .4 * R());
+    for (let i = 0; i < LEN && a > .03 && th < Math.PI - .2; i++) {
       const c = dirAt(th, ph);
       const tang = norm([0, 1, 2].map(k => (dirAt(th + 1e-3 * Math.cos(PIT), ph + 1e-3 * Math.sin(PIT) / Math.sin(th))[k] - c[k])));
       const elong = 1.15 + 1.5 * Math.exp(-i * .5);                           // petals near the centre, rounder outward
-      if (fits(c, (a + a / elong) / 2 * 1.05)) holes.push({ c, e1: tang, a, b: a / elong });
-      const an = a * Q, step = (a + an) * 1.08;
+      const aj = a * (.88 + .24 * R());
+      if (fits(c, (aj + aj / elong) / 2 * 1.05)) holes.push({ c, e1: tang, a: aj, b: aj / elong });
+      const an = a * Q, step = (a + an) * (1.02 + .12 * R());
+      ph += (R() - .5) * .06;
       th += step * Math.cos(PIT); ph += step * Math.sin(PIT) / Math.sin(th); a = an;
     }
   }
@@ -52,16 +56,28 @@ function runeLayout(o = {}) {
     holes.push({ c, e1: flow(th, ph), a, b: a / (1.1 + .25 * R()) });
     for (let i = 0; i < N; i++) gaps[i] = Math.min(gaps[i], ang(cand[i], c) - a);
   }
+  // each hole's opening time (0..1): from the focus outward, with some disorder, so the surface tears open in a wave
+  for (const h of holes) h.key = Math.min(1, ang(h.c, F) / Math.PI * .85 + R() * .15);
   // 3. teeth on the membrane: greedy again on what's left, sized by the gap, leaning with the flow
-  const teeth = []; const tg = gaps.slice(); const MAXT = o.maxTeeth ?? 150;
-  while (teeth.length < MAXT) {
-    let bi = 0; for (let i = 1; i < N; i++) if (tg[i] > tg[bi]) bi = i;
-    const g = tg[bi]; if (g < .012) break;
-    const c = cand[bi], th = ang(c, F), ph = Math.atan2(dot(c, E2), dot(c, E1)), fl = flow(th, ph);
-    const lean = .35, dir = norm(c.map((x, i) => x + fl[i] * lean));
-    teeth.push({ c, dir, r: g * .9, len: g * (2.2 + 1.6 * R()) });
-    for (let i = 0; i < N; i++) tg[i] = Math.min(tg[i], ang(cand[i], c) - g * 1.05);
+  // Ra: teeth in prominent, localized clusters (her smaller doodles), each cluster able to rise and fall on its own.
+  // Cluster centres sit on the widest membrane; a tooth's weight is how close it is to its nearest centre.
+  const NC = o.clusters ?? 7, cent = [], cg = gaps.slice();
+  for (let k = 0; k < NC; k++) {
+    let bi = 0; for (let i = 1; i < N; i++) if (cg[i] - (cent.length ? 0 : 0) > cg[bi]) bi = i;
+    const c = cand[bi]; cent.push({ c, spread: .3 + .25 * R() });
+    for (let i = 0; i < N; i++) cg[i] = Math.min(cg[i], ang(cand[i], c) - .55);
   }
-  return { F, holes, teeth };
+  const near = c => { let best = 0, w = 0; cent.forEach((q, k) => { const x = Math.exp(-Math.pow(ang(c, q.c) / q.spread, 2)); if (x > w) { w = x; best = k; } }); return [best, w]; };
+  const teeth = []; const tg = gaps.map((g, i) => g); const MAXT = o.maxTeeth ?? 150;
+  const score = cand.map((c, i) => near(c)[1]);
+  while (teeth.length < MAXT) {
+    let bi = -1, bs = 0; for (let i = 0; i < N; i++) { const sc = Math.min(tg[i], .08) * (.08 + score[i]); if (tg[i] > .01 && sc > bs) { bs = sc; bi = i; } }
+    if (bi < 0) break;
+    const g = tg[bi], c = cand[bi], th = ang(c, F), ph = Math.atan2(dot(c, E2), dot(c, E1)), fl = flow(th, ph), [cl, w] = near(c);
+    const dir = norm(c.map((x, i) => x + fl[i] * .3 + (cent[cl].c[i] - c[i]) * -.6 * w));   // splay out from the cluster's heart
+    teeth.push({ c, dir, r: Math.min(g, .07) * .9, len: Math.min(g, .07) * (1.2 + 5 * w) * (.8 + .4 * R()), cl, w });
+    for (let i = 0; i < N; i++) tg[i] = Math.min(tg[i], ang(cand[i], c) - Math.min(g, .07) * 1.05);
+  }
+  return { F, holes, teeth, clusters: cent };
 }
 if (typeof module !== 'undefined') module.exports = { runeLayout };
