@@ -24,6 +24,7 @@ const qAlign = (from, to) => { const a = v3.norm(from), b = v3.norm(to), d = v3.
 const qSlerp = (a, b, k) => { let d = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3]; if (d < 0) { b = b.map(x => -x); d = -d; }
   if (d > .9995) { const r = a.map((x, i) => x + (b[i] - x) * k), l = Math.hypot(...r); return r.map(x => x / l); }
   const om = Math.acos(d), s = Math.sin(om); return a.map((x, i) => (Math.sin((1 - k) * om) * x + Math.sin(k * om) * b[i]) / s); };
+const qConj = q => [q[0], -q[1], -q[2], -q[3]];
 const qLook = (g, roll = 0) => qMul(qAxis([0, 0, 1], roll), qAlign(g, [0, 0, 1]));   // world dir g to the front, rolled
 
 const FPX = 1500, NEAR = .025;                              // focal length (px); near plane (world units)
@@ -45,14 +46,37 @@ const RUNE2D = (() => {
   // the spikes: cluster teeth (on the membrane between ALL holes) + an urchin for the opening, + the mark's 12 rays as spikes
   let s = 7; const R = () => (s = (s * 16807) % 2147483647) / 2147483647;
   const spikes = L.teeth.map(q => ({ d: v3.norm(q.c), L: .16 + q.len * 1.6, w: .03 + q.r * .35, per: 6 + 7 * R(), ph: R(), kind: 'tooth' }));
-  for (let i = 0; i < 64; i++) { const z = 1 - 2 * R(), r = Math.sqrt(1 - z * z), a = R() * TAU;
-    spikes.push({ d: [Math.cos(a) * r, Math.sin(a) * r, z], L: .65 + .7 * R(), w: .045 + .03 * R(), per: 8 + 7 * R(), ph: R(), kind: 'urchin' }); }
+  // the urchin: fewer, and the first of them near the mark's own plane, between its rays, so the starburst first reads as
+  // growing more rays and only becomes 3D as it turns
+  for (let i = 0; i < 30; i++) { const z = i < 14 ? (R() - .5) * .35 : 1 - 2 * R(), r = Math.sqrt(1 - z * z), a = i < 14 ? (i + .5) / 14 * TAU + (R() - .5) * .2 : R() * TAU;
+    spikes.push({ d: [Math.cos(a) * r, Math.sin(a) * r, z], L: .55 + .45 * R(), w: .04 + .02 * R(), per: 9 + 6 * R(), ph: R(), kind: 'urchin', early: i < 14 }); }
   // the exact mark in world units: box 248 → its hollow r 24.2 = 0.2 world (the mark's centre IS the newborn bubble)
   const MS = 24.2 / .2, MARK_A = [8.6, 49.1, 80.1, 115.7, 146.2, 179, 213.4, 235.8, 267, 302.9, 317.9, 346.2].map(a => a * Math.PI / 180);
   const MARK_R = [118.4, 121.1, 116.1, 129.3, 119.9, 117.8, 111.6, 117, 118, 116.5, 121.1, 120.5];
   const rayOf = a => { let best = 0, bd = 9; MARK_A.forEach((m, j) => { const d = Math.abs(Math.atan2(Math.sin(a - m), Math.cos(a - m))); if (d < bd) { bd = d; best = j; } }); return best; };
   const markW = MARK_PTS.map(([bx, by]) => { const x = (bx - 124) / MS, y = -(by - 124) / MS, a = Math.atan2(y, x); return { x, y, r: Math.hypot(x, y), a, ray: rayOf(a) }; });
-  MARK_A.forEach((a, j) => spikes.push({ d: [Math.cos(a), Math.sin(a), 0], L: (MARK_R[j] - 24.2) / MS, w: .045, per: 1e9, ph: 0, kind: 'mark', j }));
+  // Ra: "use just starburst style spikes throughout". Each of the mark's 12 rays, cut from the official path into a width
+  // profile (left and right half-widths along the ray, world units). The mark IS these 12 spikes on the body from frame 0,
+  // and every other spike in the film is drawn with one of the same profiles.
+  const PROF = MARK_A.map((a, j) => {
+    const dx = Math.cos(a), dy = Math.sin(a), N = 22, u0 = .2;
+    let umax = 0; markW.forEach(m => { if (m.ray === j) umax = Math.max(umax, m.x * dx + m.y * dy); });
+    const prof = []; let pl = .03, pr = .03;
+    for (let k = 0; k <= N; k++) {
+      const u = u0 + (umax - u0) * Math.min(k / N, .985); let vl = 9, vr = 9;
+      for (let i = 0; i < markW.length; i++) { const A = markW[i], Bp = markW[(i + 1) % markW.length];
+        const ua = A.x * dx + A.y * dy, ub = Bp.x * dx + Bp.y * dy; if ((ua - u) * (ub - u) > 0 || ua === ub) continue;
+        const f = (u - ua) / (ub - ua), v = (-A.x * dy + A.y * dx) + ((-Bp.x * dy + Bp.y * dx) - (-A.x * dy + A.y * dx)) * f;
+        if (v > 0 && v < vl) vl = v; if (v < 0 && -v < vr) vr = -v; }        // the crossings nearest the ray's axis: its own edges
+      if (vl > 1) vl = pl; if (vr > 1) vr = pr; pl = vl; pr = vr; prof.push([(u - u0) / (umax - u0), vl, vr]);
+    }
+    prof.push([1, 0, 0]); return { len: umax - u0, prof };
+  });
+  MARK_A.forEach((a, j) => spikes.push({ d: [Math.cos(a), Math.sin(a), 0], L: PROF[j].len, w: 1, per: 1e9, ph: 0, kind: 'mark', j }));
+  // the other spikes use the same ray outlines minus the junction flare at the root (the mark's rays meet there)
+  const PROF2 = PROF.map(p => { const pr = p.prof.filter(q => q[0] >= .14).map(q => [(q[0] - .14) / .86, q[1], q[2]]); return { len: p.len, prof: pr }; });
+  spikes.forEach((sp, k) => { if (sp.kind !== 'mark') { sp.j = 12 + k % 12; sp.w = sp.w / .045 * .55; } });
+  PROF.push(...PROF2);
   // the struts: spokes from the inner shell to the outer, along membrane directions (the teeth roots, thinned)
   const struts = L.teeth.filter((q, i) => i % 6 === 0).map((q, k) => ({ d: v3.norm(q.c), k }));
 
@@ -84,16 +108,16 @@ const RUNE2D = (() => {
   }
   const poly = (ctx, pts) => { if (pts.length < 3) return; ctx.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]); ctx.closePath(); };
 
-  function spikeShape(ctx, d, rr, len, w, beads) {
-    const p0 = P(v3.sc(d, rr * .96)), p1 = P(v3.sc(d, rr + len)); if (!p0 || !p1) return;
-    let dx = p1[0] - p0[0], dy = p1[1] - p0[1]; const l = Math.hypot(dx, dy), wp = w * FPX / p0[2];
-    if (l < 1) { ctx.moveTo(p0[0] + wp, p0[1]); ctx.arc(p0[0], p0[1], wp, 0, TAU); return; }
-    dx /= l; dy /= l; const nx = -dy, ny = dx;
-    ctx.moveTo(p0[0] + nx * wp, p0[1] + ny * wp); ctx.lineTo(p1[0], p1[1]); ctx.lineTo(p0[0] - nx * wp, p0[1] - ny * wp); ctx.closePath();
-    if (beads && len > .22) for (let b = 1; b <= 3; b++) {
-      const q = P(v3.sc(d, rr + len * (1 + .13 * b))); if (!q) continue; const br = wp * (.55 - .13 * b) * Math.min(1, len / .5);
-      if (br > .6) { ctx.moveTo(q[0] + br, q[1]); ctx.arc(q[0], q[1], br, 0, TAU); }
-    }
+  // a spike in the starburst's own style: profile j along the spike, its width facing the camera (left side = the
+  // ray's left, so the 12 mark rays are the exact mark when face-on)
+  function spikeShape(ctx, d, rr, len, ws, j) {
+    const pr = PROF[j].prof, p0 = P(v3.sc(d, rr * .98)), p1 = P(v3.sc(d, rr + len)); if (!p0 || !p1) return;
+    let sx = p1[0] - p0[0], sy = p1[1] - p0[1]; const l = Math.hypot(sx, sy);
+    if (l < 1) { const wp = ws * .03 * FPX / p0[2]; ctx.moveTo(p0[0] + wp, p0[1]); ctx.arc(p0[0], p0[1], wp, 0, TAU); return; }
+    sx /= l; sy /= l; const lx = sy, ly = -sx, L = [], R = [];
+    for (const [u, vl, vr] of pr) { const c = P(v3.sc(d, rr + u * len)); if (!c) continue; const k = ws * FPX / c[2];
+      L.push([c[0] + lx * vl * k, c[1] + ly * vl * k]); R.push([c[0] - lx * vr * k, c[1] - ly * vr * k]); }
+    if (L.length < 2) return; ctx.moveTo(L[0][0], L[0][1]); for (const q of L) ctx.lineTo(q[0], q[1]); for (let i = R.length - 1; i >= 0; i--) ctx.lineTo(R[i][0], R[i][1]); ctx.closePath();
   }
   // the plane helper: set ctx's transform so local px map onto a plane in the WORLD (centre, axes e1 → right, e2 → up),
   // 1 local px = `unit` world units. Returns the projected centre (or null). Text drawn there turns with the object.
@@ -118,39 +142,34 @@ const RUNE2D = (() => {
     const c0 = P([0, 0, 0]) || [cam.cx, cam.cy, 1];
     const limbPath = c => { c.beginPath(); for (let k = 0; k <= 120; k++) { const a = k / 120 * TAU, r = limbPx * (1 + st.bodyScope * ringAt(st.scope, a) + .01 * st.wob * Math.sin(3 * a + st.t));
       const x = c0[0] + Math.cos(a) * r, y = c0[1] - Math.sin(a) * r; k ? c.lineTo(x, y) : c.moveTo(x, y); } c.closePath(); };
-    const openH = holes.map((h, i) => Math.max(st.open[i], st.slit[i] * .6));
+    const openH = holes.map((h, i) => Math.max(st.open[i], st.slit[i] * .12));   // a slit is thin: it barely clears anything
     // ── spikes: own rise/sink cycle × the music (in and out with the scope, hard) × clearance from open holes
     const front = [], back = [];
     if (!inside) spikes.forEach(sp => {
       let amt, life = 1, len;
-      if (sp.kind === 'mark') { amt = st.mark.spikes; if (amt <= 0) return; }
+      if (sp.kind === 'mark') { amt = 1; }
       else { amt = sp.kind === 'urchin' ? st.urchin : st.teeth; if (amt <= 0) return;
         const cyc = (st.t / sp.per + sp.ph) % 1; life = Math.max(0, Math.sin(Math.min(1, cyc / .75) * Math.PI)); }
       let clear = 1;
-      for (let i = 0; i < NH; i++) { if (openH[i] <= 0) continue; const g = ang(sp.d, holes[i].c) - Math.max(holes[i].a, holes[i].b) * cap[i] * openH[i] - sp.w;
-        if (g < .08) clear = Math.min(clear, clamp(g / .08)); if (clear <= 0) return; }
+      for (let i = 0; i < NH; i++) { if (openH[i] <= 0) continue; const g = ang(sp.d, holes[i].c) - rhoDir(holes[i], sp.d) * cap[i] * 1.1 * openH[i] - .012;
+        if (g < .03) clear = Math.min(clear, clamp(g / .03)); if (clear <= 0) return; }
       const vd = toView(sp.d), sa = Math.atan2(vd[1], vd[0]);
       if (sp.kind === 'mark') len = sp.L * st.mark.grow * (1 - st.mark.sink[sp.j]) * clamp(1 + st.mark.rayAmp * ringAt(st.scope, MARK_A[sp.j]), .08, 2.2) * amt * clear;
       else len = sp.L * amt * clear * Math.pow(life, .7) * (.3 + 1.1 * st.loud) * clamp(1 + st.spikeScope * ringAt(st.scope, sa), .05, 2.4) * (sp.kind === 'urchin' ? 1 : st.toothScale);
       if (len < .01) return;
-      (vd[2] * rr < z0 ? back : front).push([sp.d, len, sp.w * Math.min(1, .35 + len / .4), sp.kind !== 'mark']);
+      (vd[2] < z0 / rr ? back : front).push([sp.d, len, sp.kind === 'mark' ? Math.pow(st.mark.grow, .4) : sp.w * Math.min(.9, .3 + len / .9), sp.j]);
     });
-    // ── the flat mark (title and opening): its rays move in and out on the scope, nearly to the centre (Ra)
-    let markPts = null;
-    if (st.mark.amt > 0) markPts = markW.map(m => {
-      const f = clamp(1 + st.mark.rayAmp * ringAt(st.scope, MARK_A[m.ray]), .08, 2.2) * st.mark.grow * (1 - st.mark.sink[m.ray]);
-      const rw = m.r <= .2 ? m.r * rr / .2 : rr + (m.r - .2) * f;
-      return P([Math.cos(m.a) * rw, Math.sin(m.a) * rw, 0]);
-    }).filter(Boolean);
+    const axes = { right: qRot(qConj(cam.q), [1, 0, 0]), up: qRot(qConj(cam.q), [0, 1, 0]) };
     // ── 1. paper; 2. back spikes
     reset(ctx); ctx.fillStyle = PAPER; ctx.fillRect(0, 0, W, H); if (st.bg) st.bg(ctx);
-    ctx.fillStyle = INK; ctx.beginPath(); for (const [d, len, w, bd] of back) spikeShape(ctx, d, rr, len, w, bd); ctx.fill();
+    if (hooks && hooks.outside) { hooks.outside(ctx, { plane: (c, e1, e2, unit) => plane(ctx, c, e1, e2, unit), P, axes, rr, inside, Dc: cam.Dc }); reset(ctx); }
+    ctx.fillStyle = INK; ctx.beginPath(); for (const [d, len, w, j] of back) spikeShape(ctx, d, rr, len, w, j); ctx.fill();
     // ── 3. the interior
     reset(IC); IC.clearRect(0, 0, W, H);
     IC.save(); if (!inside) { limbPath(IC); IC.clip(); }
     IC.fillStyle = BACKWALL; IC.fillRect(0, 0, W, H);
     for (let i = 0; i < NH; i++) { if (st.open[i] <= 0 && st.slit[i] <= 0) continue; const cv = toView(holes[i].c);
-      if (!inside && cv[2] * rr > z0 + .05) continue;                                         // a front hole: not part of the back wall
+      if (!inside && cv[2] > z0 / rr + .05) continue;                                         // a front hole: not part of the back wall
       const pts = holePts(holes[i], i, rr, st, inside ? 'none' : 'back', z0, 28); if (pts.length < 3) continue;
       IC.fillStyle = PAPER; IC.beginPath(); poly(IC, pts); IC.fill(); }                          // windows onto the world behind
     IC.fillStyle = FOG; IC.fillRect(0, 0, W, H);                                                 // the dark opacity layer
@@ -160,7 +179,7 @@ const RUNE2D = (() => {
       const q0 = cam.q; cam = { ...cam, q: qMul(cam.q, qAxis([.3, 1, .2], st.t * .11)) };
       const zi = ri * ri / cam.Dc, rli = Math.sqrt(Math.max(0, ri * ri - zi * zi)), lp = FPX * rli / (cam.Dc - zi), ci = P([0, 0, 0]);
       const ia = st.inner * (inside ? .16 : .3); if (ci) { IC.globalAlpha = ia; IC.fillStyle = INNER; IC.beginPath();
-        for (let k = 0; k <= 90; k++) { const a = k / 90 * TAU, r = lp * (1 + .05 * ringAt(st.scopeV, a)); const x = ci[0] + Math.cos(a) * r, y = ci[1] - Math.sin(a) * r; k ? IC.lineTo(x, y) : IC.moveTo(x, y); }
+        for (let k = 0; k <= 90; k++) { const a = k / 90 * TAU, r = lp * (1 + .015 * ringAt(st.scopeV, a)); const x = ci[0] + Math.cos(a) * r, y = ci[1] - Math.sin(a) * r; k ? IC.lineTo(x, y) : IC.moveTo(x, y); }
         IC.closePath(); IC.fill(); IC.globalAlpha = ia * 1.6; IC.fillStyle = '#0E0907';
         for (let i = 0; i < NH; i++) { if (st.open[i] <= 0 || toView(holes[i].c)[2] * ri < zi) continue; const pts = holePts(holes[i], i, ri, st, 'front', zi, 20); IC.beginPath(); poly(IC, pts); IC.fill(); }
         IC.globalAlpha = 1; }
@@ -171,7 +190,7 @@ const RUNE2D = (() => {
       IC.strokeStyle = '#D9774F'; IC.lineCap = 'round';
       for (const sr of struts) { const pts = [], side = v3.norm(v3.cross(sr.d, Math.abs(sr.d[1]) < .9 ? [0, 1, 0] : [1, 0, 0]));
         for (let k = 0; k <= 14; k++) { const u = k / 14, base = v3.sc(sr.d, lerp(ri, rr * .93, u));
-          const amp = .05 * rr * Math.sin(u * Math.PI * (1 + sr.k % 3)) * ringAt(st.scopeV, sr.k * .9 + u * 2) * (.3 + st.vox);
+          const amp = .018 * rr * Math.sin(u * Math.PI * (1 + sr.k % 3)) * ringAt(st.scopeV, sr.k * .9 + u * 2) * (.3 + st.vox);
           const p = P(v3.add(base, v3.sc(side, amp))); if (p) pts.push(p); }
         if (pts.length < 2) continue; const dz = pts[pts.length >> 1][2];
         IC.globalAlpha = clamp(.7 / dz) * .45 * st.inner; IC.lineWidth = Math.max(1, FPX * .006 * rr / dz);
@@ -182,20 +201,20 @@ const RUNE2D = (() => {
     reset(BC); BC.clearRect(0, 0, W, H);
     const seen = [];
     for (let i = 0; i < NH; i++) { if (st.open[i] <= .05) continue; const cv = toView(holes[i].c);
-      if (!inside && cv[2] * rr < z0) continue; const pc = P(v3.sc(holes[i].c, rr)); if (!pc) continue;
+      if (!inside && cv[2] < z0 / rr) continue; const pc = P(v3.sc(holes[i].c, rr)); if (!pc) continue;
       seen.push({ i, x: pc[0], y: pc[1], z: cv[2], dz: pc[2], r: FPX * rr * Math.sin((holes[i].a + holes[i].b) / 2 * cap[i]) * st.open[i] / pc[2] });
       if (!inside && st.rimScope > 0) {
         const pts = holePts(holes[i], i, rr * .97, st, 'front', z0 * .97, 64, th => .8 + .1 * ringAt(st.scopeV, th + i));
         if (pts.length > 3) { BC.globalAlpha = .38 * st.rimScope; BC.strokeStyle = ORG; BC.lineWidth = Math.max(1, 3 / pc[2]); BC.beginPath(); poly(BC, pts); BC.stroke(); BC.globalAlpha = 1; }
       }
     }
-    const api = { plane: (c, e1, e2, unit) => plane(BC, c, e1, e2, unit), P, toView, rr, inside, seen, holes, cap,
+    const api = { plane: (c, e1, e2, unit) => plane(BC, c, e1, e2, unit), P, toView, rr, inside, seen, holes, cap, axes, Dc: cam.Dc,
       holePlane: (i, depth, unit) => { const h = holes[i], ax = h.a >= h.b ? h.e1 : h.e2, ay = h.a >= h.b ? h.e2 : v3.sc(h.e1, -1);
         return plane(BC, v3.sc(h.c, rr * (1 - depth)), ax, ay, unit); },
       holeUnit: (i, depth = .12) => rr * (1 - depth) * Math.sin(Math.min(holes[i].a, holes[i].b) * cap[i]) * .9 / 500 };
     if (hooks && hooks.beam) hooks.beam(BC, api);
     reset(BC);
-    IC.globalCompositeOperation = 'lighter'; IC.filter = 'blur(9px)'; IC.globalAlpha = .9; IC.drawImage(Bc, 0, 0);
+    IC.globalCompositeOperation = 'lighter'; IC.filter = 'blur(22px)'; IC.globalAlpha = .5; IC.drawImage(Bc, 0, 0); IC.filter = 'blur(6px)'; IC.globalAlpha = .6; IC.drawImage(Bc, 0, 0);
     IC.filter = 'none'; IC.globalAlpha = 1; IC.drawImage(Bc, 0, 0); IC.globalCompositeOperation = 'source-over';
     IC.restore();
     ctx.drawImage(I, 0, 0);
@@ -203,7 +222,7 @@ const RUNE2D = (() => {
       // ── 4. the holes' inner walls (the shell's thickness), under 5. the front shell with its holes cut out
       reset(WC); WC.clearRect(0, 0, W, H); reset(SC); SC.clearRect(0, 0, W, H);
       SC.fillStyle = INK; limbPath(SC); SC.fill(); SC.globalCompositeOperation = 'destination-out';
-      for (let i = 0; i < NH; i++) { if (st.open[i] <= 0 && st.slit[i] <= 0) continue; const cv = toView(holes[i].c); if (cv[2] * rr < z0 - Math.sin(Math.max(holes[i].a, holes[i].b))) continue;
+      for (let i = 0; i < NH; i++) { if (st.open[i] <= 0 && st.slit[i] <= 0) continue; const cv = toView(holes[i].c); if (cv[2] < z0 / rr - Math.sin(Math.max(holes[i].a, holes[i].b) * cap[i] * 1.2)) continue;   // wholly behind the limb (unit-sphere terms: the 3:51 bug mixed units)
         const outer = holePts(holes[i], i, rr, st, 'front', z0), inner = holePts(holes[i], i, rr * .93, st, 'front', z0 * .93);
         if (outer.length < 3) continue;
         SC.beginPath(); poly(SC, outer); SC.fill();
@@ -213,10 +232,8 @@ const RUNE2D = (() => {
       ctx.save(); limbPath(ctx); ctx.clip(); ctx.drawImage(Wc, 0, 0); ctx.restore();
       ctx.drawImage(Sc, 0, 0);
       // ── 6. front spikes
-      ctx.fillStyle = INK; ctx.beginPath(); for (const [d, len, w, bd] of front) spikeShape(ctx, d, rr, len, w, bd); ctx.fill();
+      ctx.fillStyle = INK; ctx.beginPath(); for (const [d, len, w, j] of front) spikeShape(ctx, d, rr, len, w, j); ctx.fill();
     }
-    // the flat mark on top (title + opening; face-on, so its plane never needs a depth split)
-    if (markPts && markPts.length > 3) { ctx.save(); ctx.globalAlpha = st.mark.amt; ctx.fillStyle = INK; ctx.beginPath(); poly(ctx, markPts); ctx.fill(); ctx.restore(); }
     return seen;
   }
   return { L, draw, group, rank, bySize, cap, spikes, P: w => P(w) };

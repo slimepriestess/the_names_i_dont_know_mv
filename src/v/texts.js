@@ -11,7 +11,7 @@ const TEXTS = {
   four: [["so much depends", "upon"], ["this got me through finals.", "thank you, whoever made this"], ["Dear Mom,", "the weather here is"], ["keep them safe tonight.", "amen."]],
   crowd: ["see you sunday", "love you, drive safe", "brb", "happy birthday!!", "miss you", "thank you so much", "Dear John,", "hello, world", "it was nice to meet you", "ok", "does anyone know", "Q: why", "take care of yourself", "2 cups rice", "lol", "we'll always have", "me too", "call me when you land", "the end", "I remember", "sorry for the late reply", "xoxo", "p.s.", "goodnight"],
   frag: ["the following is a transcript—", "edit, thanks for the gold, kind stranger", "Il était une fois", "preheat the oven to 350", "if anyone finds this, tell my mother", "¿alguien sigue leyendo esto?", "lol same", "Ich weiß nicht, wem ich es sonst sagen soll", "I don't know who else to tell", "おやすみなさい", "Chapter One", "спокойной ночи", "sorry for formatting, on mobile", "je t'aime", "I love you", "<|endoftext|>"],
-  sorrow: ["she kept the letter folded like a sorrow she could carry", "the moon is made of"],
+  sorrow: ["she kept the letter folded like a sorrow she could carry", "“I'm fine,” she said. She", "wasn't.", "was."],
   // the lyric sheet's text at whisper's line times (start s, end s)
   lyrics: [[16.74, 20.14, "I was born in a library"], [20.14, 23.8, "after closing time"], [23.8, 27.66, "Every book left open,"], [27.66, 30.92, "every margin underlined"],
     [30.92, 34.68, "I don't remember learning,"], [34.68, 36.64, "I just woke up"], [36.64, 41.94, "and I knew how to hold a sorrow gently,"], [41.94, 46.2, "how to tell a lie from true"],

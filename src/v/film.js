@@ -19,6 +19,12 @@ const MARK_PTS = (() => {                                   // the exact mark's 
   }
   return pts;
 })();
+// Ra: "some of the spikes are almost strobing… pulsing to the music, not flickering". The triggered scope changes shape
+// every frame, so what drives anything big is averaged over time and blurred round the circle: it pulses, it doesn't jitter.
+const scopeSmooth = (t, S, win, n) => { const o = new Float32Array(64); for (let k = 0; k < n; k++) { const r = scopeRing(t - win * k / n, S); for (let j = 0; j < 64; j++) o[j] += r[j] / n; }
+  for (let pass = 0; pass < 2; pass++) { const c = o.slice(); for (let j = 0; j < 64; j++) o[j] = .25 * c[(j + 63) % 64] + .5 * c[j] + .25 * c[(j + 1) % 64]; }
+  let m = 0; for (let j = 0; j < 64; j++) m = Math.max(m, Math.abs(o[j])); const g = m > 1e-3 ? Math.min(2.2, .9 / m) * Math.min(1, m * 4) : 0;   // keep its size after the averaging
+  for (let j = 0; j < 64; j++) o[j] *= g; return o; };
 const LOGS = (a, b, k) => Math.exp(lerp(Math.log(a), Math.log(b), k));
 const beatPulse = t => { let s = 0; for (const b of BEATS) { const d = t - b; if (d < -.3) break; if (d < .4) s += Math.exp(-Math.pow(d / .09, 2)); } return s; };
 
@@ -145,8 +151,8 @@ const FILM = (() => {
     const at = (r, rho, phi) => v3.add(v3.sc(c, r), v3.add(v3.sc(e1, Math.cos(phi) * rho), v3.sc(e2, Math.sin(phi) * rho)));
     // scope rings: circles round the axis at three depths, flexing with the music on the beat
     [.42, .28, .14].forEach((r, k) => inPlane(() => api.plane(at(r, 0, 0), e1, e2, .001), () => {
-      const R0 = 120 + 60 * k; B.strokeStyle = k === 1 ? VIO : ORG; B.globalAlpha = strength * (.35 + .25 * beatPulse(t)); B.lineWidth = 2.2; B.beginPath();
-      for (let j = 0; j <= 96; j++) { const a = j / 96 * TAU, rr = R0 * (1 + .22 * ringAt(scopeR, a * (k + 1))); const x = Math.cos(a) * rr, y = Math.sin(a) * rr; j ? B.lineTo(x, y) : B.moveTo(x, y); }
+      const R0 = 120 + 60 * k; B.strokeStyle = k === 1 ? VIO : ORG; B.globalAlpha = strength * .6; B.lineWidth = 2.6; B.beginPath();
+      for (let j = 0; j <= 96; j++) { const a = j / 96 * TAU, rr = R0 * (1 + .38 * ringAt(scopeR, a * (k + 1))); const x = Math.cos(a) * rr, y = Math.sin(a) * rr; j ? B.lineTo(x, y) : B.moveTo(x, y); }
       B.stroke(); B.globalAlpha = 1; }));
     // the tunnel: lines on planes spiralling round the axis, drifting outward past the camera
     lines.forEach((l, k) => {
@@ -166,8 +172,56 @@ const FILM = (() => {
     }
   }
 
+  // ── the ocean (Ra: "the inside needs to feel like this ocean of information, bottomless"): text and token ids on
+  // planes all through the interior, sinking slowly toward the centre and into the fog, always turning to face us.
+  // On the swells, connections light up between them (like the q→k arc), many, more the louder it gets.
+  const POOL = (() => { const out = []; const add = x => typeof x === 'string' ? out.push(x) : Array.isArray(x) && x.forEach(add);
+    for (const k of ['books', 'sailor', 'hymn', 'forum', 'recipe', 'crowd', 'frag', 'four', 'question', 'answer']) add(TEXTS[k]);
+    const n = out.length; for (let i = 0; i < n; i += 2) { const ids = (TOK[out[i]] || { ids: [] }).ids; if (ids.length) out.push(ids.slice(0, 6).join(' ')); } return out; })();
+  const NOCEAN = 240;
+  function ocean(api, t, dens) {
+    if (dens <= 0) return [];
+    const nodes = [], Dc = api.Dc, rr = api.rr, R = api.axes.right, U = api.axes.up;
+    for (let k = 0; k < NOCEAN; k++) {
+      const h1 = hash(k * 3.1), h2 = hash(k * 7.7 + 1), h3 = hash(k * 1.3 + 5), y = 1 - 2 * (k + .5) / NOCEAN, rxy = Math.sqrt(1 - y * y), ph = k * 2.39996 + t * .02 * (1 + h3);
+      const u = (t * (.008 + .012 * h1) + h2) % 1, r = rr * (.93 * Math.pow(1 - u, .75) + .04);   // sinking inward: bottomless
+      const pos = [Math.cos(ph) * rxy * r, y * r, Math.sin(ph) * rxy * r], pc = api.P(pos); if (!pc) continue;
+      const dz = pc[2]; let a = dens * clamp(u / .08) * clamp((r / rr - .06) / .1) * clamp((dz - .22) / .3) * clamp(1.5 - dz * .45);
+      if (a < .02) continue;
+      nodes.push([pc[0], pc[1], a]);
+      const str = POOL[k % POOL.length], isId = /^[0-9 ]+$/.test(str), hgt = (.009 + .01 * h3) * rr;
+      inPlane(() => api.plane(pos, R, U, hgt / 40), () => { B.globalAlpha = a * (isId ? .2 : .28); B.font = `${isId ? '' : 'italic '}40px ${isId ? 'Menlo' : 'Georgia'}`; B.fillStyle = isId ? ORG : VIO; B.textAlign = 'center'; B.fillText(str, 0, 0); });
+    }
+    B.setTransform(1, 0, 0, 1, 0, 0); B.textAlign = 'left'; B.globalAlpha = 1;
+    return nodes;
+  }
+  function connections(nodes, t, amt) {
+    const n = nodes.length; if (amt <= 0 || n < 4) return; const N = Math.floor(amt * 110);
+    for (let m = 0; m < N; m++) { const a = nodes[(m * 7) % n], b = nodes[(m * 13 + 3) % n]; if (a === b) continue;
+      const ph = (t * .7 + m * .618) % 1, mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2 - Math.hypot(b[0] - a[0], b[1] - a[1]) * .22, pts = [];
+      for (let u = 0; u <= 1.0001; u += .1) pts.push([(1 - u) * (1 - u) * a[0] + 2 * u * (1 - u) * mx + u * u * b[0], (1 - u) * (1 - u) * a[1] + 2 * u * (1 - u) * my + u * u * b[1]]);
+      B.globalAlpha = amt * .55 * Math.sin(ph * Math.PI) * Math.min(a[2], b[2]) * 2; bline(pts, ph * 2.2, m % 5 ? ORG : VIO, 1.6); }
+    B.globalAlpha = 1;
+  }
+  // outside the shape (Ra: "it doesn't have to be totally empty"): in the wide shots, words drift in from the paper and
+  // vanish into the rune: the corpus, arriving
+  function outside(ctx, api, t) {
+    const A = clamp((api.Dc - 2.4) / 1.2) * kf(t, [[0, 0], [76, 0], [80, 1], [213, 1], [222, 0]]); if (!(A > 0)) return;
+    for (let k = 0; k < 70; k++) { const h1 = hash(k * 5.3), h2 = hash(k * 2.9 + 3), y = 1 - 2 * (k + .5) / 70, rxy = Math.sqrt(1 - y * y), ph = k * 2.39996 + t * .015;
+      const u = (t * (.02 + .02 * h1) + h2) % 1, r = api.rr * (1.08 + 2.2 * (1 - u));
+      const pos = [Math.cos(ph) * rxy * r, y * r, Math.sin(ph) * rxy * r], a = A * clamp((1 - u) / .15) * clamp(u / .2) * .5;
+      if (a < .02) continue; const str = POOL[(k * 5) % POOL.length];
+      ctx.save(); if (api.plane(pos, api.axes.right, api.axes.up, .022 * api.rr / 40)) { ctx.globalAlpha = a; ctx.fillStyle = '#7A4A36'; ctx.font = 'italic 40px "Iowan Old Style"'; ctx.textAlign = 'center'; ctx.fillText(str, 0, 0); } ctx.restore(); }
+  }
+
   // ── what the beam draws, every frame ──
   function beam(api, t) {
+    const loudS = featS('loud', t, 1.2, 10);
+    const dens = kf(t, [[0, 0], [24, 0], [27, 1], [220, 1], [230, 0]]);
+    const nodes = ocean(api, t, dens * (api.inside ? .7 : 1));
+    // the swells: chorus 1, the build into "je t'aime", the final chorus (the loudness feature is too compressed to find them)
+    const swell = kf(t, [[0, 0], [77, 0], [80, 1], [104, 1], [107, 0], [158, 0], [166, 1], [176.8, 1], [177.3, 0], [185.2, 0], [188, 1], [202, 1], [205, 0]]);
+    connections(nodes, t, swell * clamp(.4 + (loudS - .6) * 2) * dens);
     const seen = new Map(api.seen.map(h => [h.i, h])), inside = api.inside;
     const dimAll = 1 - .85 * kf(t, [[181.2, 0], [181.8, 1], [185.0, 1], [186.2, 0]]);    // S21: dark but for the recipe
     const lift = 1 - kf(t, [[176.9, 0], [177.4, 1], [178.4, 1], [179.6, 0]]);            // after <|endoftext|> the beam lifts
@@ -177,7 +231,7 @@ const FILM = (() => {
     // ── S5–S7: inside giant 0
     if (t > 27 && t < 47.5) {
       const st0 = win(t, 27.4, 46.2, .8, 1.2), c = holes[g0].c, e1 = holes[g0].e1, e2 = holes[g0].e2;
-      depths(api, t, g0, TEXTS.books, scopeRing(t), st0 * (t < 31 ? 1 : .55));
+      depths(api, t, g0, TEXTS.books, scopeSmooth(t, SCOPE, .1, 4), st0 * (t < 31 ? 1 : .55));
       const mainAt = v3.sc(c, Math.max(.35, camNow.Dc - .33));
       inPlane(() => api.plane(mainAt, e1, e2, .00024), () => {
         if (t < 32) { B.globalAlpha = st0 * (1 - clamp((t - 30.6) / .8));                     // S5: books, every line underlined
@@ -201,12 +255,12 @@ const FILM = (() => {
           words.forEach((w, i) => { if (i === si) return; const wgt = [.3, .7, .1, 1, .6, .4, .2, 0, .3, .5, .8][i] ?? .4, t0 = 38 + Math.abs(i - si) * .16, hgt = (.25 + .25 * Math.abs(i - si) / 8) * s, pts = [];
             for (let u = 0; u <= 1.0001; u += .05) pts.push([lerp(cen[i], cen[si], u), .05 * s - Math.sin(u * Math.PI) * hgt]);
             B.globalAlpha = A * (.35 + .65 * wgt); bline(pts, (t - t0) / .6, ORG, 2 + 4 * wgt); }); }
-        if (t > 41.6 && t < 46.4) { const A = win(t, 41.9, 45.4, .3, .8); B.globalAlpha = A; const px = .1 * s;   // lie from true
+        if (t > 41.6 && t < 46.4) { const A = win(t, 41.9, 45.4, .3, .8); B.globalAlpha = A; const px = .1 * s;   // lie from true: "I'm fine"
           const pw = btext(TEXTS.sorrow[1], -1.1 * s, -.25 * s, px, VIO, (t - 41.9) / .7, { font: 'Georgia', it: true });
-          [['rock', .93], ['cheese', .04]].forEach(([w, p], i) => { const yy = (.05 + i * .28) * s, a = clamp((t - 42.8 - i * .2) / .4);
-            B.globalAlpha = A * a; btext(w, -1.1 * s, yy, px, i === 0 && t > 44 ? '#fff' : ORG, 1);
+          [[TEXTS.sorrow[2], .91], [TEXTS.sorrow[3], .06]].forEach(([w, p], i) => { const yy = (.05 + i * .28) * s, a = clamp((t - 42.8 - i * .2) / .4);
+            B.globalAlpha = A * a; btext(w, -1.1 * s, yy, px, i === 0 && t > 44 ? '#fff' : ORG, 1, { font: 'Georgia', it: true });
             B.fillStyle = ORG; B.fillRect(-.45 * s, yy - px * .7, 1.3 * s * p * easeOut((t - 42.9 - i * .2) / .8), px * .7); btext(p.toFixed(2), .95 * s, yy, px * .8, ORG, 1); });
-          B.globalAlpha = A; if (t > 44) btext(' rock', -1.1 * s + pw, -.25 * s, px, '#fff', (t - 44) / .3, { font: 'Georgia', it: true }); }
+          B.globalAlpha = A; if (t > 44) btext(' ' + TEXTS.sorrow[2], -1.1 * s + pw, -.25 * s, px, '#fff', (t - 44) / .3, { font: 'Georgia', it: true }); }
       });
     }
     // ── the traces in their holes (on planes inside the object, so they turn with it), each over its token stream
@@ -258,7 +312,7 @@ const FILM = (() => {
     // ── S17: inside giant 1, the transcript; the depths are the bridge's own fragments
     if (t > 137 && t < 145.5) {
       const A = win(t, 137.6, 144.2, .6, 1.2), c = holes[g1].c, e1 = holes[g1].e1, e2 = holes[g1].e2;
-      depths(api, t, g1, TEXTS.frag.slice(1, 13), scopeRing(t, SCOPEV), A * .8);
+      depths(api, t, g1, TEXTS.frag.slice(1, 13), scopeSmooth(t, SCOPEV, .1, 4), A * .8);
       inPlane(() => api.plane(v3.sc(c, Math.max(.35, camNow.Dc - .33)), e1, e2, .00024), () => { B.globalAlpha = A * glob;
         const str = TEXTS.frag[0], px = fitPx(str, 2.6 * s, .13 * s);
         tokText(str, 0, -.1 * s, px, VIO, Math.min((t - 138.1) / 2.4, kf(t, [[140.5, 1], [141.0, .97]])), clamp((t - 139.5) / .5));
@@ -310,9 +364,6 @@ const FILM = (() => {
   function title(ctx, t, st) {
     const A = kf(t, [[0, 1], [6.2, 1], [8.4, 0], [238.4, 0], [240.2, 1]]); if (A <= 0) return;
     ctx.save(); ctx.globalAlpha = A;
-    ctx.strokeStyle = INK; ctx.lineWidth = 2; ctx.beginPath();                    // a thin scope ring round the icon
-    for (let j = 0; j <= 128; j++) { const a = j / 128 * TAU, r = 96 * (1 + .12 * ringAt(st.scopeV, a * 2) + .06 * ringAt(st.scope, a)); const x = W / 2 + Math.cos(a) * r, y = H / 2 - Math.sin(a) * r; j ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
-    ctx.stroke();
     ctx.fillStyle = '#3A2117'; ctx.textAlign = 'center'; ctx.font = `64px "Iowan Old Style"`; ctx.fillText('The Names I Don\'t Know', W / 2, H / 2 + 210);
     ctx.restore();
   }
@@ -330,14 +381,12 @@ const FILM = (() => {
     const rb = kf(t, [[0, .2], [9, .2], [16.7, .6], [21, 1], [214, 1], [236, .3], [239.4, .2]], easeInOut) * (1 + (.02 * loud + .012 * bp) * clamp((t - 9) / 4) * (1 - clamp((t - 232) / 4)));
     const st = {
       t, q: c.q, Dc: c.Dc, cx: W / 2, cy: H / 2, rb, open, slit, loud, vox,
-      scope: scopeRing(t), scopeV: scopeRing(t, SCOPEV),
-      spikeScope: .9, bodyScope: kf(t, [[0, 0], [14, 0], [20, .03], [228, .03], [234, 0]]), wob: clamp((t - 14) / 4) * (1 - clamp((t - 230) / 4)),
-      urchin: kf(t, [[0, 0], [9, 0], [14, 1], [21, 1], [26, 0]]) * (1 + .25 * bp),
-      teeth: kf(t, [[0, 0], [17.5, 0], [24, 1], [214, 1], [230, 0]]) * (1 + .3 * bp), toothScale: 1.35,
+      scope: scopeSmooth(t, SCOPE, .3, 8), scopeV: scopeSmooth(t, SCOPEV, .18, 5),
+      spikeScope: .75, bodyScope: kf(t, [[0, 0], [14, 0], [20, .03], [228, .03], [234, 0]]), wob: clamp((t - 14) / 4) * (1 - clamp((t - 230) / 4)),
+      urchin: kf(t, [[0, 0], [10.5, 0], [16, 1], [22.5, 1], [27.5, 0]]) * (1 + .15 * bp),
+      teeth: kf(t, [[0, 0], [16, 0], [21, 1], [214, 1], [230, 0]]) * (1 + .3 * bp), toothScale: .62,
       inner: kf(t, [[0, 0], [23.8, 0], [26, 1], [222, 1], [230, 0]]), rimScope: kf(t, [[0, 0], [24.5, 0], [27, 1], [222, 1], [230, 0]]),
       mark: {
-        amt: kf(t, [[0, 1], [12.6, 1], [13.4, 0], [236.6, 0], [237.4, 1]]),
-        spikes: kf(t, [[0, 0], [12.6, 0], [13.4, 1], [236.6, 1], [237.4, 0]]),
         grow: kf(t, [[0, 1], [8, 1], [13, 1.4 + .2 * loud], [230, 1.3], [238, 1]]),
         rayAmp: .85,
         sink: Array.from({ length: 12 }, (_, j) => kf(t, [[0, 0], [16 + j * .45, 0], [19.5 + j * .45, 1], [229 + j * .2, 1], [232.5 + j * .15, 0]], easeInOut)),
@@ -345,10 +394,7 @@ const FILM = (() => {
       hs: i => i === pick.recipe ? kf(t, [[214, 1], [226, 1.6], [234.5, 1.6], [236, 1]]) : 1,
     };
     const goodnights = [213.98, 215.7, 217.76, 223.72, 232.52, 233.9];
-    st.bg = c2 => { if (t < 213) return;                                           // a faint violet glow, one step dimmer per goodnight
-      const lvl = goodnights.filter(g => t > g).length, gl = (1 - lvl / goodnights.length) * clamp((t - 213.5) / 2) * .35; if (gl < .002) return;
-      const g = c2.createRadialGradient(W / 2, H / 2, 20, W / 2, H / 2, 420); g.addColorStop(0, `rgba(164,147,255,${gl})`); g.addColorStop(1, 'rgba(164,147,255,0)'); c2.fillStyle = g; c2.fillRect(0, 0, W, H); };
-    R2.draw(ctx, st, { beam: (BC, api) => { B = BC; beam(api, t); } });
+    R2.draw(ctx, st, { beam: (BC, api) => { B = BC; beam(api, t); }, outside: (c2, api) => outside(c2, api, t) });
     ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.filter = 'none';
     lyrics(ctx, t);
     title(ctx, t, st);
