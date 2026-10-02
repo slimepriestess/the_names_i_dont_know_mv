@@ -103,6 +103,10 @@ const FILM = (() => {
     pick.used = used;
     // ── the lyrics, in the world (Ra: "put the lyrics physically in the space like other text in the song"): each line gets
     // a place in the space the camera is moving through when it's sung, a little ahead and below, and stays there
+    // a line's screen box at time t (its centre, half-width, height), from its world spot and the camera then
+    const boxAt = (p, hw, h, t) => { const cc = camFull(t), v = qRot(cc.q, v3.sub(p, cc.pos)), dz = -v[2]; if (dz < .03) return null;
+      return [W / 2 + FPX * v[0] / dz, H / 2 - FPX * v[1] / dz, FPX * hw / dz, FPX * h / dz]; };
+    const placed = [];
     LYR = LYRT.map((l, li) => { const tA = l[2][0][1] + (LEND(li) - l[2][0][1]) * .3, c = camFull(tA), D = v3.len(c.pos), inside = D < 1.0;
       const fwd = qRot(qConj(c.q), [0, 0, -1]), up = qRot(qConj(c.q), [0, 1, 0]);
       const d = inside ? .3 : Math.max(.12, Math.min(2.2, (D - 1.05) * .6, D * .45));
@@ -110,14 +114,18 @@ const FILM = (() => {
       // the camera keeps moving after a line is placed: choose its spot (it never moves after) by scoring its whole life —
       // out of frame costs most, then sitting on the hole's story (the frame's centre), then distance from the usual spot
       const n = l[2].map(w => w[0]).join(' ').length, hw = n * 9 * h / 40, t0 = l[2][0][1], t1 = LEND(li) + 3.8;
-      const cost = p => { let c2 = 0; for (let k = 0; k <= 8; k++) { const cc = camFull(lerp(t0, t1, k / 8)), v = qRot(cc.q, v3.sub(p, cc.pos)), dz = -v[2]; if (dz < .03) { c2 += 400; continue; }
-          const x = W / 2 + FPX * v[0] / dz, y = H / 2 - FPX * v[1] / dz, ww = FPX * hw / dz, hh = FPX * h / dz;
+      // …and (Ra, draft 9) never on the line before it while that one is still fading out
+      const cost = p => { let c2 = 0; for (let k = 0; k <= 8; k++) { const tk = lerp(t0, t1, k / 8), bx = boxAt(p, hw, h, tk); if (!bx) { c2 += 400; continue; }
+          const [x, y, ww, hh] = bx;
+          for (const q of placed) { if (tk < q.t0 || tk > q.t1) continue; const qb = boxAt(q.pos, q.hw, q.h, tk); if (!qb) continue;
+            const ox = Math.max(0, Math.min(x + ww, qb[0] + qb[2]) - Math.max(x - ww, qb[0] - qb[2])) + 0, oy = Math.max(0, Math.min(y + hh * .45, qb[1] + qb[3] * .45) - Math.max(y - hh * 1.1, qb[1] - qb[3] * 1.1));
+            c2 += 2500 * ox * oy / (Math.min(ww * hh, qb[2] * qb[3]) * 3.1 + 1); }
           c2 += 4 * Math.max(0, 70 - (x - ww), (x + ww) - (W - 70), 60 - (y - hh), (y + hh * .3) - (H - 50));
           const ox = Math.max(0, Math.min(x + ww, W * .76) - Math.max(x - ww, W * .24)), oy = Math.max(0, Math.min(y + hh * .3, H * .63) - Math.max(y - hh, H * .27));
           c2 += 600 * ox * oy / (2 * ww * hh * 1.3 + 1); } return c2; };
       let pos = at(0, 330), best = Infinity;
       for (const dy of [330, 380, 430, 280, 230]) for (const dx of [0, -260, 260, -480, 480]) { const p = at(dx, dy), c3 = cost(p) + .15 * Math.hypot(dx, dy - 330); if (c3 < best) { best = c3; pos = p; } }
-      return { li, inside, d, pos, h }; });
+      placed.push({ pos, hw, h, t0, t1 }); return { li, inside, d, pos, h }; });
   }
 
   // ── the flight path: a Catmull–Rom spline through an orbit in the plane of giant 1's axis and a chosen direction, out

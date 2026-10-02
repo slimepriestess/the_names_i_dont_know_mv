@@ -16,6 +16,14 @@
   <canvas id="gl" width="1920" height="1080"></canvas>
   <div class="bar"><input id="scrub" type="range" min="0" max="241" step="0.0333" value="0"><span id="tt">loading…</span></div>
 </main>
+<script>
+  // every 2D context draws text unhinted: hinted glyphs snap to integer sizes as text scales, so text flying toward or away
+  // from the camera wobbled by up to ~1 px a frame (Ra: "a bit of jitter in some of the text during the flythrough")
+  (() => { const g = HTMLCanvasElement.prototype.getContext; HTMLCanvasElement.prototype.getContext = function (type, ...a) {
+    const c = g.call(this, type, ...a); if (type === '2d' && c && 'textRendering' in c) c.textRendering = 'geometricPrecision'; return c; };
+    if (typeof OffscreenCanvas !== 'undefined') { const o = OffscreenCanvas.prototype.getContext; OffscreenCanvas.prototype.getContext = function (type, ...a) {
+      const c = o.call(this, type, ...a); if (type === '2d' && c && 'textRendering' in c) c.textRendering = 'geometricPrecision'; return c; }; } })();
+</script>
 <script src="src/feat.js"></script>
 <script src="src/timing.js"></script>
 <script src="src/scope.js"></script>
