@@ -106,14 +106,17 @@ const FILM = (() => {
     LYR = LYRT.map((l, li) => { const tA = l[2][0][1] + (LEND(li) - l[2][0][1]) * .3, c = camFull(tA), D = v3.len(c.pos), inside = D < 1.0;
       const fwd = qRot(qConj(c.q), [0, 0, -1]), up = qRot(qConj(c.q), [0, 1, 0]);
       const d = inside ? .3 : Math.max(.12, Math.min(2.2, (D - 1.05) * .6, D * .45));
-      let pos = v3.add(v3.add(c.pos, v3.sc(fwd, d)), v3.sc(up, -330 / FPX * d)); const h = 44 / FPX * d;
-      // outside, the camera keeps moving after a line is placed: draw it in toward the view's centre at placement until it
-      // stays in frame its whole life (it still never moves: the camera does)
-      if (!inside) { const ctr = v3.add(c.pos, v3.sc(fwd, d)), n = l[2].map(w => w[0]).join(' ').length, hw = n * 9 * h / 40, t0 = l[2][0][1], t1 = LEND(li) + 3.8;
-        const over = p => { let worst = 0; for (let k = 0; k <= 6; k++) { const cc = camFull(lerp(t0, t1, k / 6)), r = qRot(qConj(cc.q), [1, 0, 0]), v = qRot(cc.q, v3.sub(p, cc.pos)), dz = -v[2];
-            if (dz < .05) continue; const x = W / 2 + FPX * v[0] / dz, y = H / 2 - FPX * v[1] / dz, ww = FPX * hw / dz, hh = FPX * h / dz;
-            worst = Math.max(worst, 70 - (x - ww), (x + ww) - (W - 70), 60 - (y - hh), (y + hh * .3) - (H - 50)); } return worst; };
-        for (let k = 0; k < 12 && over(pos) > 0; k++) pos = v3.lerp(pos, ctr, .2); }
+      const h = 44 / FPX * d, rt = qRot(qConj(c.q), [1, 0, 0]), at = (dx, dy) => v3.add(v3.add(c.pos, v3.sc(fwd, d)), v3.add(v3.sc(rt, dx / FPX * d), v3.sc(up, -dy / FPX * d)));
+      // the camera keeps moving after a line is placed: choose its spot (it never moves after) by scoring its whole life —
+      // out of frame costs most, then sitting on the hole's story (the frame's centre), then distance from the usual spot
+      const n = l[2].map(w => w[0]).join(' ').length, hw = n * 9 * h / 40, t0 = l[2][0][1], t1 = LEND(li) + 3.8;
+      const cost = p => { let c2 = 0; for (let k = 0; k <= 8; k++) { const cc = camFull(lerp(t0, t1, k / 8)), v = qRot(cc.q, v3.sub(p, cc.pos)), dz = -v[2]; if (dz < .03) { c2 += 400; continue; }
+          const x = W / 2 + FPX * v[0] / dz, y = H / 2 - FPX * v[1] / dz, ww = FPX * hw / dz, hh = FPX * h / dz;
+          c2 += 4 * Math.max(0, 70 - (x - ww), (x + ww) - (W - 70), 60 - (y - hh), (y + hh * .3) - (H - 50));
+          const ox = Math.max(0, Math.min(x + ww, W * .76) - Math.max(x - ww, W * .24)), oy = Math.max(0, Math.min(y + hh * .3, H * .63) - Math.max(y - hh, H * .27));
+          c2 += 600 * ox * oy / (2 * ww * hh * 1.3 + 1); } return c2; };
+      let pos = at(0, 330), best = Infinity;
+      for (const dy of [330, 380, 430, 280, 230]) for (const dx of [0, -260, 260, -480, 480]) { const p = at(dx, dy), c3 = cost(p) + .15 * Math.hypot(dx, dy - 330); if (c3 < best) { best = c3; pos = p; } }
       return { li, inside, d, pos, h }; });
   }
 
@@ -278,33 +281,36 @@ const FILM = (() => {
   const POOL = (() => { const out = []; const add = x => typeof x === 'string' ? out.push(x) : Array.isArray(x) && x.forEach(add);
     for (const k of ['books', 'sailor', 'hymn', 'forum', 'recipe', 'crowd', 'frag', 'four', 'question', 'answer']) add(TEXTS[k]);
     const n = out.length; for (let i = 0; i < n; i += 2) { const ids = (TOK[out[i]] || { ids: [] }).ids; if (ids.length) out.push(ids.slice(0, 6).join(' ')); } return out; })();
-  const NOCEAN = 300, NCORE = 170;
+  const NOCEAN = 300, NCORE = 170, NFLY = 300, NODES = NOCEAN + NCORE + NFLY;
   function ocean(api, t, dens) {
     if (dens <= 0) return [];
-    const nodes = [], rr = api.rr, R = api.axes.right, U = api.axes.up;
-    const put = (pos, k, a, hgt) => { const pc = api.P(pos); if (!pc) return; const dz = pc[2];
-      a *= clamp((dz - .1) / .25) * clamp(1.6 - dz * .45); if (a < .02) return; nodes.push([pc[0], pc[1], a]);
+    // nodes keep FIXED ids (visible or not): the connections pair ids, so nothing re-pairs as nodes come and go (Ra: jitter)
+    const nodes = new Array(NODES), rr = api.rr, R = api.axes.right, U = api.axes.up;
+    const put = (pos, k, a, hgt, id) => { const pc = api.P(pos); if (!pc) return; const dz = pc[2];
+      a *= clamp((dz - .1) / .25) * clamp(1.6 - dz * .45); if (a < .02) return; nodes[id] = [pc[0], pc[1], a];
       const str = POOL[k % POOL.length], isId = /^[0-9 ]+$/.test(str);
       inPlane(() => api.plane(pos, R, U, hgt / 40), () => { B.globalAlpha = a * (isId ? .2 : .28); B.font = `${isId ? '' : 'italic '}40px ${isId ? 'Menlo' : 'Georgia'}`; B.fillStyle = isId ? ORG : VIO; B.textAlign = 'center'; B.fillText(str, 0, 0); }); };
     for (let k = 0; k < NOCEAN; k++) {
       const h1 = hash(k * 3.1), h2 = hash(k * 7.7 + 1), h3 = hash(k * 1.3 + 5), y = 1 - 2 * (k + .5) / NOCEAN, rxy = Math.sqrt(1 - y * y), ph = k * 2.39996 + t * .02 * (1 + h3);
       const u = (t * (.008 + .012 * h1) + h2) % 1, r = rr * (.93 * Math.pow(1 - u, .75) + .04);
-      put([Math.cos(ph) * rxy * r, y * r, Math.sin(ph) * rxy * r], k, dens * clamp(u / .08) * clamp((r / rr - .06) / .1), (.009 + .01 * h3) * rr);
+      put([Math.cos(ph) * rxy * r, y * r, Math.sin(ph) * rxy * r], k, dens * clamp(u / .08) * clamp((r / rr - .06) / .1), (.009 + .01 * h3) * rr, k);
     }
     for (let k = 0; k < NCORE; k++) {                        // the core: a dense swirl at the very centre, around and inside the inner shell
       const h1 = hash(k * 9.1 + 2), h3 = hash(k * 4.4 + 7), y = 1 - 2 * (k + .5) / NCORE, rxy = Math.sqrt(1 - y * y), ph = k * 2.39996 + t * (.05 + .05 * h1);
       const r = rr * (.05 + .3 * Math.pow(hash(k * 6.6), .7));
-      put([Math.cos(ph) * rxy * r, y * r, Math.sin(ph) * rxy * r], k * 3 + 1, dens * .9, (.006 + .008 * h3) * rr);
+      put([Math.cos(ph) * rxy * r, y * r, Math.sin(ph) * rxy * r], k * 3 + 1, dens * .9, (.006 + .008 * h3) * rr, NOCEAN + k);
     }
     B.setTransform(1, 0, 0, 1, 0, 0); B.textAlign = 'left'; B.globalAlpha = 1;
     return nodes;
   }
   function connections(nodes, t, amt) {
-    const n = nodes.length; if (amt <= 0 || n < 4) return; const N = Math.floor(amt * 110);
-    for (let m = 0; m < N; m++) { const a = nodes[(m * 7) % n], b = nodes[(m * 13 + 3) % n]; if (a === b) continue;
+    if (amt <= 0) return; let vis = 0; for (let i = 0; i < NODES; i++) if (nodes[i]) vis++; if (vis < 4) return;
+    // a fixed list of id pairs; as many drawn as keep ~amt·110 visible, each line fading in/out at the count's edge
+    const want = amt * 110 * Math.min(12, Math.pow(NODES / vis, 2)), Nmax = Math.min(4000, Math.ceil(want) + 1);
+    for (let m = 0; m < Nmax; m++) { const a = nodes[(m * 7) % NODES], b = nodes[(m * 13 + 3) % NODES]; if (!a || !b || a === b) continue; const edge = clamp(want - m);
       const ph = (t * .16 + m * .618) % 1, mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2 - Math.hypot(b[0] - a[0], b[1] - a[1]) * .22, pts = [];
       for (let u = 0; u <= 1.0001; u += .1) pts.push([(1 - u) * (1 - u) * a[0] + 2 * u * (1 - u) * mx + u * u * b[0], (1 - u) * (1 - u) * a[1] + 2 * u * (1 - u) * my + u * u * b[1]]);
-      B.globalAlpha = amt * .55 * Math.pow(Math.sin(ph * Math.PI), .6) * Math.min(a[2], b[2]) * 2; bline(pts, ph * 2.6, m % 5 ? ORG : VIO, 1.6); }
+      B.globalAlpha = edge * amt * .55 * Math.pow(Math.sin(ph * Math.PI), .6) * Math.min(a[2], b[2]) * 2; bline(pts, ph * 2.6, m % 5 ? ORG : VIO, 1.6); }
     B.globalAlpha = 1;
   }
   // outside the shape: a cloud of words drifting in from the paper and vanishing into the rune (more of it; Ra)
@@ -370,7 +376,7 @@ const FILM = (() => {
         const pp = FLIGHT.pose(Math.min(FLIGHT.t1, Tk + .4)), r = qRot(qConj(pp.q), [1, 0, 0]), u = qRot(qConj(pp.q), [0, 1, 0]), ang = k * 2.39996 + Tk * .35, rad = .05 + .2 * hash(k * 1.7);
         const at = v3.add(pp.pos, v3.add(v3.sc(r, Math.cos(ang) * rad), v3.sc(u, Math.sin(ang) * rad)));
         const pc = api.P(at); if (!pc) continue; const a = clamp((t - Tk + 6) / 1.2) * clamp((pc[2] - .03) / .1) * clamp(1.6 - pc[2]);
-        if (a < .02) continue; nodes.push([pc[0], pc[1], a]);
+        if (a < .02) continue; nodes[NOCEAN + NCORE + k] = [pc[0], pc[1], a];
         const str = POOL[(k * 7) % POOL.length], isId = /^[0-9 ]+$/.test(str);
         inPlane(() => api.plane(at, api.axes.right, api.axes.up, (.006 + .006 * hash(k)) / 40), () => { B.globalAlpha = a * (isId ? .4 : .55);
           B.font = `${isId ? '' : 'italic '}40px ${isId ? 'Menlo' : 'Georgia'}`; B.fillStyle = isId ? ORG : VIO; B.textAlign = 'center'; B.fillText(str, 0, 0); });

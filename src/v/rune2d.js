@@ -153,16 +153,19 @@ const RUNE2D = (() => {
     return o;
   }
 
-  const Tb = mkCanvas(), TC = Tb.getContext('2d'), I = mkCanvas(), IC = I.getContext('2d'), Wc = mkCanvas(), WC = Wc.getContext('2d'), Sc = mkCanvas(), SC = Sc.getContext('2d'), Bc = mkCanvas(), BC = Bc.getContext('2d');
+  const Uc = mkCanvas(), UC = Uc.getContext('2d'), Tb = mkCanvas(), TC = Tb.getContext('2d'), I = mkCanvas(), IC = I.getContext('2d'), Wc = mkCanvas(), WC = Wc.getContext('2d'), Sc = mkCanvas(), SC = Sc.getContext('2d'), Bc = mkCanvas(), BC = Bc.getContext('2d');
   const reset = c => { c.setTransform(1, 0, 0, 1, 0, 0); c.globalAlpha = 1; c.globalCompositeOperation = 'source-over'; c.filter = 'none'; };
 
   // passing through a hole: its side wall is a short tube round us (nothing else draws it from there); quads far→near
-  function tubeWall(ctx, st, rr) {
+  function tubeWall(ctx0, st, rr, alpha = 1) {
+    // solid on its own layer, then faded as one: its strips' antialiased overlaps would otherwise stripe at partial alpha
+    const ctx = alpha < 1 ? UC : ctx0; if (alpha < 1) { reset(UC); UC.clearRect(0, 0, W, H); }
     const i = st.tube, n = 112, o = holeWorld(holes[i], i, rr, st, 'none', n), w = holeWorld(holes[i], i, rr * .93, st, 'none', n), qs = [];
     for (let k = 0; k < n; k++) { const q = [o[k], o[(k + 1) % n], w[(k + 1) % n], w[k]], m = q.reduce((a, b) => v3.add(a, b), [0, 0, 0]);
       qs.push([v3.len(v3.sub(v3.sc(m, .25), cam.pos)), q]); }
     qs.sort((a, b) => b[0] - a[0]); reset(ctx); ctx.fillStyle = WALL; ctx.strokeStyle = WALL; ctx.lineWidth = 1.5;
     for (const [, q] of qs) { const pts = polyW(q); if (pts.length < 3) continue; ctx.beginPath(); poly(ctx, pts); ctx.fill(); ctx.stroke(); }
+    if (alpha < 1) { reset(ctx0); ctx0.globalAlpha = alpha; ctx0.drawImage(Uc, 0, 0); reset(ctx0); }
   }
 
   // st: { t, cam: {q, pos}, cx, cy, rb, open[], slit[], loud, vox, wob, spec, specMean, scopeV, bodyScope, urchin, teeth,
@@ -226,6 +229,7 @@ const RUNE2D = (() => {
         const pc = P(v3.sc(holes[i].c, rr)), dz = pc ? pc[2] : 3;
         IC.globalAlpha = Math.max(inside ? .07 : clamp(.13 + .5 * clamp((.9 - dz) / .7)), st.window ? st.window(i) : 0); IC.fillStyle = PAPER; IC.beginPath(); poly(IC, pts); IC.fill(); if (wv > 0) { IC.strokeStyle = PAPER; IC.lineWidth = 3; IC.stroke(); } }
       IC.globalAlpha = 1;
+      if (inside && st.tube != null && st.window) { const wa = st.window(st.tube); if (wa > 0) { tubeWall(IC, st, rr, wa); reset(IC); } }
       // the nested inner shell: the same rune, smaller, turning its own way, its outline flexing with the voice
       const ri = rr * .42;
       if (st.inner > 0 && D > ri * 1.08) {
@@ -270,7 +274,6 @@ const RUNE2D = (() => {
       if (st.warm > .005) { IC.globalCompositeOperation = 'lighter'; IC.globalAlpha = Math.min(.55, st.warm); IC.fillStyle = '#C8501F'; IC.fillRect(0, 0, W, H); IC.globalAlpha = 1; IC.globalCompositeOperation = 'source-over'; }
       IC.restore();
       ctx.drawImage(I, 0, 0);
-      if (inside && st.tube != null && D > rr * .85) tubeWall(ctx, st, rr);
     }
     if (!inside && limb && limb.length > 2) {
       // ── 4. the holes' inner walls (the shell's thickness), under 5. the front shell with its holes cut out
