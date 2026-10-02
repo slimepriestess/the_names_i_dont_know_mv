@@ -1,0 +1,11 @@
+# audio stays out of the repo (rights), and so do renders and stems
+*.wav
+*.m4a
+*.flac
+*.mp3
+analysis/stems/
+out/
+proto/*.png
+proto/*.jpg
+node_modules
+.DS_Store
