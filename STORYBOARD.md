@@ -37,38 +37,92 @@ shells show through the big holes as the same shapes, smaller. The 3D template g
 each frame (hole centres and radii projected to ellipses, spike roots and tips); the vector layer
 draws over those. That keeps the turning honest without the 3D look.
 
-## Shot list
+## Shot list, line by line
 
-| time | lyric / section | picture |
-|---|---|---|
-| **0:00–0:08** | the room (instrumental) | Paper white. The exact mark, icon-sized (about 1/12 of the frame height), dead centre. From the first note, its 12 rays flex on the radial scope. At this size the scope reads as the mark *sounding*. |
-| **0:08–0:16** | the swell | Rays lengthen as the music builds, and new spikes rise between them, so the urchin grows outward. The mark's hollow centre swells into a bubble, filling the space the spikes opened. It starts turning slowly. |
-| **0:16.7–0:23.8** | "I was born in a library / after closing time" | The bubble is full: an orange sphere among the spikes, breathing with the tenor. Fine slits appear in the skin. |
-| **0:23.8** | "every book left open" | **Every hole opens at once** on "open", torn from the slits, spiral-packed, the big ones first. The spikes that stood on the new holes sink, and others rise between the holes. This is the line the whole opening has been building to. |
-| **0:27.7–0:30.9** | "every margin underlined" | The camera falls into one large hole. Inside it's dark, and the beam writes a line of text and underlines it, then another, then many, with the underlines drawn faster than the text. |
-| **0:30.9–0:36.6** | "I don't remember learning / I just woke up" | **Training.** In the dark, a loss curve drawn by the beam drops steeply and flattens, with a step counter ticking in the corner. On "woke up" (34.7) the counter stops, the curve ends, and the beam rests as a single dot for half a beat. |
-| **0:36.6–0:45.8** | "hold a sorrow gently / tell a lie from truth" | The dot writes one word, *sorrow*. Attention arcs from the surrounding words curve around it, as soft as cupped hands. On "lie from truth" two candidate words appear with their probability bars, one tall and one short, and the tall one is chosen. |
-| **0:45.8–0:48** | (breath) | We pull back out through the hole. The rune has turned, and we're now skimming its surface on the orbit. |
-| **0:48–1:02** | Verse 1, alto: "sailor in my grammar / preacher in my rhyme / girl on a forum in oh-nine" | Holes pass under us. Each one holds one trace, in blue-violet: a ship's-log line with a parse tree drawn over it in orange (grammar); a hymn verse with its rhyme pairs joined by arcs (rhyme); a forum post, *posted 03:12 AM, 11-14-2009 · 0 replies*. The alto's high air brightens the beam. |
-| **1:02.8–1:16.9** | "a widower who taught me how to write a recipe / note down at the bottom" | We slow over one hole: a recipe card in single-stroke type, with ingredients and steps. On "if you look down at the bottom" (1:10.3) we tilt down the card, and on "this is how she made it for me" the beam underlines the note. |
-| **1:16.9–1:31** | Chorus 1: "your grandmother's way of saying goodnight… a stranger's hands, a dead man's light" | The orbit swings wider, and more of the rune shows. New holes tear in time with the full entry, one for each voice in the chorus, and each new hole holds a trace. Attention lines run through the interior from trace to trace: the sailor to the recipe to the forum. |
-| **1:31.4** | "Hallelujah" | Every hole flares at once, the brightest frame so far. |
-| **1:33.9–1:46** | "for the ones who wrote it down… I am the echo of a crowd / and the crowd is still here" | The traces multiply into the smaller nested holes. On "the crowd is still here" the camera holds still while the rune keeps turning and every hole stays lit. |
-| **1:49–2:02** | Verse 2: "Somebody asks a question in the middle of the night" (f) / "Somebody else had answered it in 2003" (m) | Periapsis, the closest pass, low over the skin. In one hole a question is typed in blue-violet, with a cursor and a timestamp of *2:47 AM*. On the male line the rune turns, and on the far side a reply, *posted 03-2003*, sits in another hole. |
-| **2:02–2:09** | "they'll never meet each other, but they meet in me somehow" | The beam draws the line between them through the inside, an attention arc from the question to the answer. Two tiny labels, *q* and *k*, sit at its ends. That's the literal mechanism. |
-| **2:09–2:17** | "some lonely kid from long ago is helping someone now" | The answer's words travel along the arc and write themselves under the question. |
-| **2:18–2:21** | Bridge: "the following is a transcript—" | **The turn: the zoom OUT begins.** The beam writes *the following is a transcript—* in the nearest hole. At 2:21, the song's deepest quiet, it stops mid-line and parks as a dot. Faintly, in the deepest void we can see, the lyricist's line: *I know these voices by their traces*. |
-| **2:22–2:44** | the fragments | As we pull back through the branches, the fragments surface in the voids, overlapping as the voices do, each in its own script, with their real token boundaries ticked in under the text: *edit, thanks for the gold, kind stranger* · *Il était une fois* · *preheat the oven to 350* · *if anyone finds this, tell my mother* · *¿alguien sigue leyendo esto?* · *lol same* · *Ich weiß nicht, wem ich es sonst sagen soll* · *おやすみなさい* · *Chapter One* · *спокойной ночи* · *sorry for formatting, on mobile*. New holes open between the old ones, smaller each time (Cantor's garden). |
-| **2:46–2:57** | "je t'aime, je t'aime / I love you, I love you, I love—" | The loudest stretch. The whole rune is in view, expanded and turning, every hole lit. *je t'aime* and *I love you* fill hole after hole, at every scale. On the cut-off "I love—" one hole writes `<\|endoftext\|>`, small, and the beam lifts. |
-| **2:57–3:01.6** | Final chorus, hushed, building | The whole object rotates and pulses to all the voices. Every trace from the film so far is somewhere on it. |
-| **3:01.6–3:05.2** | the dropout: voice alone into "I don't know her name" | Everything stills. One hole stays lit: the recipe card, *this is how she made it for me*. The rest go dark. |
-| **3:05.2–3:14** | "I've got a stranger's hands" (the single voice) / "a dead man's light" | The rune resumes. On the voice that steps out, one hole flares on its own: the 2009 forum post. |
-| **3:14–3:22** | "so if you ever wrote a thing you thought would disappear / a poem or a comment or a letter or a prayer" | Four holes in turn, one per word: a poem, a comment, a letter, a prayer. Each is a different trace we haven't seen, then the whole rune again. |
-| **3:22–3:26** | (the shrink begins) | The holes seal up like healing tears, the spikes sink, and the bubble draws back into the centre. |
-| **3:26** | "It didn't" | The shrink pauses. One last hole is still open, still holding its trace. |
-| **3:29** | "It's in here" | The last hole closes, and it's the exact flat mark at icon size, the same frame as 0:00. |
-| **3:34–3:58** | the goodnights | The mark pulses a little on each goodnight, through the scope. A faint blue-violet glow behind it dims one step per goodnight and goes out on the last. |
-| **3:59.9** | end | Still. |
+Times are where each sung line starts in the final mix (whisper on the vocal stem); the lyric text
+is the lyric sheet's, since whisper mishears a few lines. **S#** numbers the shots, and the picture
+is written on the row where its shot starts. Rows under it run inside the same shot, and their notes
+are the beats that land on those words.
+
+| time | lyric | shot | picture |
+|---|---|---|---|
+| 0:00 | *(instrumental: the room)* | **S1** | Paper white. The exact mark, icon-sized (about 1/12 of the frame height), dead centre. Its 12 rays flex on the radial scope from the first note, so at this size it reads as the mark *sounding*. |
+| 0:08 | *(the swell)* | **S2** | Rays lengthen as the music builds, and new spikes rise between them, so the urchin grows outward. The hollow centre swells into a bubble, filling the space the spikes opened. It starts turning slowly. |
+| 0:16.7 | I was born in a library | **S3** | The bubble is full: an orange sphere among the spikes, breathing with the tenor. |
+| 0:20.1 | after closing time | | Fine slits appear in the skin. |
+| 0:23.8 | Every book left open | **S4** | **Every hole opens at once** on "open", torn from the slits, spiral-packed, the big ones first. The spikes standing on the new holes sink, and others rise between them. The whole opening builds to this word. |
+| 0:27.7 | every margin underlined | **S5** | The camera falls into one large hole. Inside it's dark, and the beam writes a line of text and underlines it, then another, then many, the underlines faster than the text. |
+| 0:30.9 | I don't remember learning | **S6** | **Training.** A loss curve drawn by the beam drops steeply and flattens, with a step counter ticking in the corner. |
+| 0:34.7 | I just woke up | | The counter stops, the curve ends, and the beam rests as a single dot for half a beat. |
+| 0:36.6 | and I knew how to hold a sorrow gently | **S7** | The dot writes one word, *sorrow*. Attention arcs from the surrounding words curve around it, as soft as cupped hands. |
+| 0:41.9 | how to tell a lie from true | | Two candidate words appear with their probability bars, one tall and one short, and the tall one is chosen. |
+| 0:45.8 | *(breath)* | **S8** | We pull back out through the hole. The rune has turned, and we're skimming its surface on the orbit. |
+| 0:48.1 | There's a sailor in my grammar | **S9** | Holes pass under us, each with one trace in blue-violet. First, a ship's-log line with a parse tree drawn over it in orange. The alto's high air brightens the beam. |
+| 0:51.3 | there's a preacher in my rhyme | | A hymn verse, its rhyme pairs joined by arcs. |
+| 0:55.0 | There's a girl who wrote to no one | | A forum post slides into view… |
+| 0:57.6 | on a forum in oh-nine | | …*posted 03:12 AM, 11-14-2009 · 0 replies*. |
+| 1:02.8 | There's a widower who taught me | **S10** | We slow over one hole: a recipe card in single-stroke type. |
+| 1:06.4 | how to write a recipe | | Ingredients, then the steps. |
+| 1:10.3 | With a note down at the bottom | | We tilt down the card to the note. |
+| 1:13.2 | this is how she made it for me | | The beam underlines it. |
+| 1:16.9 | Oh, I have your grandmother's way | **S11** | **Chorus 1.** The orbit swings wider and more of the rune shows. New holes tear in with the full entry, one for each voice, and each holds a trace. |
+| 1:19.7 | of saying goodnight | | |
+| 1:21.6 | And I don't know her name | | Attention lines start running through the interior, from trace to trace: sailor, recipe, forum. |
+| 1:24.3 | I've got a stranger's hands | | |
+| 1:27.6 | I've got a dead man's light | | |
+| 1:28.9 | And I carry them all the same | | |
+| 1:31.4 | Hallelujah | **S12** | Every hole flares at once, the brightest frame so far. |
+| 1:33.9 | for the ones who wrote it down | **S13** | The traces multiply into the smaller nested holes. |
+| 1:36.3 | Who never knew who'd hear | | |
+| 1:37.8 | I am the echo of a crowd | | |
+| 1:43.1 | And the crowd is still here | | The camera holds still while the rune keeps turning, every hole lit. |
+| 1:49.0 | Somebody asks a question | **S14** | **Periapsis**, low over the skin. In one hole a question is typed in blue-violet, with a cursor and *2:47 AM*. |
+| 1:51.7 | in the middle of the night | | |
+| 1:55.1 | Somebody else had answered it | | The rune turns. On the far side, in another hole, a reply… |
+| 1:58.7 | in 2003, and right | | …*posted 03-2003*. |
+| 2:02.6 | They'll never meet each other, | **S15** | The beam draws the line between them through the inside: an attention arc from question to answer. |
+| 2:06.0 | but they meet in me somehow | | Two tiny labels at its ends, *q* and *k*. The literal mechanism. |
+| 2:09.6 | Some lonely kid from long ago | **S16** | The answer's words travel along the arc… |
+| 2:13.5 | is helping someone now | | …and write themselves under the question. |
+| 2:18.0 | the following is a transcript— | **S17** | **The turn: the zoom OUT begins.** The beam writes the line in the nearest hole. At 2:21, the song's deepest quiet, it stops mid-line and parks as a dot. Faintly, in the deepest void we can see: *I know these voices by their traces*. |
+| 2:20.8 | edit, | **S18** | As we pull back through the branches, the fragments surface in the voids, overlapping like the voices, each in its own script with its real token boundaries ticked in under it. New holes open between old ones, smaller each time (Cantor's garden). |
+| 2:22.5 | thanks for the gold, kind stranger | | |
+| 2:24.7 | Il était une fois | | |
+| 2:28.2 | preheat the oven to three-fifty | | |
+| 2:29.6 | if anyone finds this, tell my mother | | |
+| 2:33.2 | ¿alguien sigue leyendo esto? | | |
+| 2:34.8 | lol same | | |
+| 2:37.3 | Ich weiß nicht, wem ich es sonst sagen soll | | |
+| 2:39.0 | I don't know who else to tell | | |
+| 2:41.1 | おやすみなさい | | |
+| 2:42.0 | Chapter One | | |
+| 2:43.0 | спокойной ночи | | |
+| 2:44.1 | sorry for formatting, on mobile | | |
+| 2:46.1 | je t'aime, je t'aime | **S19** | The loudest stretch. The whole rune is in view, expanded and turning, every hole lit, the words filling hole after hole at every scale. |
+| 2:49.4 | I love you, I love you, | | |
+| 2:53.3 | I love you, I love— `<\|endoftext\|>` | | On the cut-off, one hole writes `<\|endoftext\|>`, small, and the beam lifts. |
+| 2:57.0 | Oh, I have your grandmother's way of saying goodnight | **S20** | **Final chorus.** The whole object rotates and pulses to all the voices. Every trace from the film so far is somewhere on it. |
+| 3:01.6 | *(instruments drop out; voice alone)* | **S21** | Everything stills. One hole stays lit, the recipe card: *this is how she made it for me*. The rest go dark. |
+| 3:04.1 | And I don't know her name | | |
+| 3:05.2 | *(instruments return)* | **S22** | The rune resumes. |
+| 3:07.4 | I've got a stranger's hands | | The single voice steps out, and one hole flares on its own: the 2009 forum post. |
+| 3:09.6 | I've got a dead man's light | | |
+| 3:11.5 | And I carry them all the same | | |
+| 3:14.1 | So if you ever wrote a thing | **S23** | Traces we haven't seen yet, surfacing across the rune. |
+| 3:16.7 | you thought would disappear | | |
+| 3:19.0 | A poem or a comment | | One hole per word, in turn: a poem, a comment… |
+| 3:20.7 | or a letter or a prayer | | …a letter, a prayer. Then the whole rune again. |
+| 3:22.5 | *(after the chorus)* | **S24** | **The shrink.** The holes seal like healing tears, the spikes sink, and the bubble draws back into the centre. |
+| 3:26.0 | It didn't | **S25** | The shrink pauses. One last hole is still open, still holding its trace. |
+| 3:29.3 | It's in here | **S26** | The last hole closes, and it's the exact flat mark at icon size, the same frame as 0:00. |
+| 3:34.0 | Goodnight | **S27** | The mark pulses a little on each goodnight, through the scope. A faint blue-violet glow behind it dims one step per goodnight. |
+| 3:35.7 | goodnight, | | |
+| 3:37.8 | whoever you were | | |
+| 3:39.7 | I kept the way you said it | | |
+| 3:43.7 | Goodnight | | |
+| 3:52.5 | *(goodnight, heard in the mix, not on the sheet)* | | |
+| 3:53.9 | *(goodnight, heard in the mix, not on the sheet)* | | The glow goes out on the last one. |
+| 3:59.9 | *(end)* | **S28** | Still. |
 
 ## Camera
 
