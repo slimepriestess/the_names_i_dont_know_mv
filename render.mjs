@@ -35,7 +35,7 @@ async function openPage(tag = '') {
   const page = await browser.newPage();
   page.on('console', m => { if (['error', 'warn'].includes(m.type())) console.log(`[page${tag}]`, m.text()); });
   page.on('pageerror', e => console.log(`[page error${tag}]`, e.message));
-  await page.goto(pathToFileURL(resolve('studio.html')).href + '?render', { waitUntil: 'networkidle0' });
+  await page.goto(pathToFileURL(resolve(args.page || 'studio.html')).href + '?render', { waitUntil: 'networkidle0' });
   await page.waitForFunction('window.ready === true', { timeout: 60000 });
   if (args.inject) await page.addScriptTag({ path: resolve(args.inject) });   // an extra script, e.g. tools/cast.js (overrides drawWorld)
   if (args.loop) await page.evaluate(name => { window.LOOP = LOOPS[name]; }, args.loop);
