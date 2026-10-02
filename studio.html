@@ -1,0 +1,53 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>HYMN studio</title>
+<style>
+  html, body { margin: 0; background: #111; color: #eee; font: 13px system-ui, sans-serif; }
+  main { padding: 12px; display: grid; gap: 8px; }
+  #gl { width: min(100%, 1280px); aspect-ratio: 16 / 9; height: auto; background: #000; }
+  #ov { display: none; }
+  .bar { display: flex; gap: 10px; align-items: center; max-width: 1280px; }
+  #scrub { flex: 1; } #tt { font-variant-numeric: tabular-nums; min-width: 120px; }
+</style>
+</head>
+<body>
+<main>
+  <canvas id="gl" width="1920" height="1080"></canvas>
+  <canvas id="ov" width="1920" height="1080"></canvas>
+  <div class="bar"><input id="scrub" type="range" min="0" max="241" step="0.0333" value="0"><span id="tt">loading…</span></div>
+</main>
+<script src="src/feat.js"></script>
+<script src="src/timing.js"></script>
+<script src="src/lyrics.js"></script>
+<script src="src/core.js"></script>
+<script src="src/gen.js"></script>
+<script src="src/rune.js"></script>
+<script src="src/timeline.js"></script>
+<script>
+(() => {
+  const ov = document.getElementById('ov'), glc = document.getElementById('gl');
+  X = ov.getContext('2d'); RUNE.init(glc);
+  function frame(t) {
+    T = t; X.setTransform(1, 0, 0, 1, 0, 0); X.globalAlpha = 1; X.globalCompositeOperation = 'source-over';
+    const p = drawWorld(t); RUNE.draw(p, ov);
+  }
+  window.renderAt = (t, type = 'image/jpeg', q = .92) => { frame(t); return glc.toDataURL(type, q); };
+  window.renderSheet = (ts, cols, w) => {
+    const h = Math.round(w * 9 / 16), rows = Math.ceil(ts.length / cols), sh = document.createElement('canvas');
+    sh.width = cols * w; sh.height = rows * (h + 22); const c = sh.getContext('2d'); c.fillStyle = '#000'; c.fillRect(0, 0, sh.width, sh.height);
+    const ms = [];
+    ts.forEach((t, i) => { const t0 = performance.now(); frame(t); ms.push(Math.round(performance.now() - t0));
+      const x = (i % cols) * w, y = Math.floor(i / cols) * (h + 22); c.drawImage(glc, x, y, w, h);
+      c.fillStyle = '#fff'; c.font = '16px monospace'; c.fillText(t.toFixed(2) + 's', x + 6, y + h + 16); });
+    return { url: sh.toDataURL('image/jpeg', .9), ms };
+  };
+  const scrub = document.getElementById('scrub'), tt = document.getElementById('tt');
+  const show = () => { const t = +scrub.value; frame(t); tt.textContent = t.toFixed(2) + ' s'; };
+  scrub.oninput = show; show();
+  window.ready = true;
+})();
+</script>
+</body>
+</html>
