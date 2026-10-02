@@ -36,4 +36,19 @@ Open questions for Ra:
   inside the voids, or the words could be left to the voice entirely.
 - The Voyager bed for the bridge, if we want one (needs the multilingual greetings section).
 
+## Ra's ruling after slice 1 r2 (2026-10-01, late): what changes
+
+- **The final film is vector, not the 3D render.** The raymarched rune (src/rune.js) is a template:
+  the reference for shapes and motion that the flat vector layers get drawn over. Plan for the smooth,
+  flat animation style throughout.
+- **Start small.** The opening starburst is icon-sized. As the music swells, the spikes grow, and
+  that growth opens the space the bubble expands into. At icon size, the scope's motion reads as
+  motion instead of jitter.
+- **Everything moves with the music**, constantly: the bubble and the holes behave like one organic
+  fluid.
+- **Spikes only where there are no holes.** They never slide: one sinks where it stands while
+  another rises somewhere else.
+- **Open the shape fast.** The starburst transition must not eat the intro. Get the rune open
+  early so we can fly in and show the imagery inside. "We're getting too bogged down in the shape."
+
 Written by: claude-opus-5-5, 2026-10-01
