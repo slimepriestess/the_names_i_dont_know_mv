@@ -1,19 +1,26 @@
 <!doctype html><html><head><meta charset="utf-8"><title>rune proto</title>
 <style>html,body{margin:0;background:#000}canvas{display:block}</style></head><body>
 <canvas id="gl" width="1920" height="1080"></canvas>
+<script src="gen.js"></script>
 <script>
-// rune proto: Ra's wild rune as a raymarched SDF. A hollow ooze shell with circular holes across its surface, nested
-// shells inside (each a smaller rune, so the dive is self-similar), spikes that shift, beads at the spike tips. Orange
-// on white outside; looking through a hole you see dark interior (where the beam layer will draw).
+// rune proto v4: Ra's wild rune as a raymarched SDF. Layout from gen.js (golden-spiral holes around a focus, an
+// Apollonian gap-fill, teeth on the leftover membrane). A thin, crisp shell; elliptical holes stretched along the
+// spiral's flow; nested shells inside (each a smaller rune: the dive is self-similar); 12 long spikes on the mark's
+// rays, perforated; beads past their tips. Orange on white outside; dark inside the voids (the beam draws there).
 const P = Object.fromEntries(new URLSearchParams(location.search));
 const num = (k, d) => P[k] !== undefined ? +P[k] : d;
+const L = runeLayout();
+const NH = 200, NT = 150;
 const FS = `#version 300 es
-precision highp float; out vec4 o; uniform vec2 res; uniform float t, camD, camYaw, camPitch, open, nLev;
-#define NH 44
-#define NS 30
-uniform vec4 holes[NH];   // xyz = centre direction, w = angular radius
-uniform vec4 spikes[NS];  // xyz = direction, w = length (in shell radii)
-const float K = .42;      // each shell is this much smaller than the one outside it
+precision highp float; out vec4 o; uniform vec2 res; uniform float t, camD, camYaw, camPitch, open, nLev, mark, edge;
+#define NH ${NH}
+#define NT ${NT}
+#define NM 12
+uniform vec4 hA[NH], hB[NH];       // hA = centre xyz + sin(semi-major); hB = flow axis xyz + sin(semi-minor)
+uniform vec4 tA[NT], tB[NT];       // tA = tooth direction xyz + root radius; tB = root point xyz + length
+uniform vec4 mk[NM];               // mark rays: direction xyz + length (in shell radii)
+uniform float nH, nT;
+const float K = .42;               // each nested shell is this much smaller
 float smin(float a, float b, float k){ float h = clamp(.5 + .5 * (b - a) / k, 0., 1.); return mix(b, a, h) - k * h * (1. - h); }
 float smax(float a, float b, float k){ return -smin(-a, -b, k); }
 mat3 rotY(float a){ float c = cos(a), s = sin(a); return mat3(c, 0, -s, 0, 1, 0, s, 0, c); }
@@ -26,84 +33,95 @@ float sdRoundCone(vec3 p, vec3 a, vec3 b, float r1, float r2){
   if (sign(y) * a2 * y2 < k) return sqrt(x2 + y2) * il2 - r1;
   return (sqrt(x2 * a2 * il2) + y * rr) * il2 - r1;
 }
-// one shell of radius R with the holes carved, holes rotated per level so the layers don't line up
-float shell(vec3 p, float R, float lev){
-  float r = length(p), th = .06 * R;
-  vec3 q = p / max(r, 1e-4);
-  float wob = .035 * sin(q.x * 3.1 + t * .7 + lev) * sin(q.y * 2.7 - t * .5) + .02 * sin(q.z * 5.3 + t * .9 + lev * 2.);
-  float d = abs(r - R * (1. + wob)) - th;
-  vec3 n = rotY(lev * 1.7 + t * .03 * (lev + 1.)) * rotX(lev * .9) * (p / max(r, 1e-4));
+// the holes, as a signed distance on the unit sphere (negative inside a hole), scaled to radius R
+float holeD(vec3 n, float R){
   float hd = 1e9;
-  for (int i = 0; i < NH; i++) { float ang = acos(clamp(dot(n, holes[i].xyz), -1., 1.)); hd = min(hd, (ang - holes[i].w * open) * R); }
-  return smax(d, -hd, .045 * R);
+  for (int i = 0; i < NH; i++) {
+    if (float(i) >= nH) break;
+    vec3 c = hA[i].xyz; float cd = dot(n, c); if (cd < .6) continue;          // far side of the sphere
+    vec3 d = n - c * cd, e1 = hB[i].xyz, e2 = cross(c, e1);
+    float sa = hA[i].w * open, sb = hB[i].w * open;
+    vec2 uv = vec2(dot(d, e1) / sa, dot(d, e2) / sb);
+    hd = min(hd, (length(uv) - 1.) * min(sa, sb) * R);
+  }
+  return hd;
 }
-// returns distance; id: 0 = outer skin, 1.. = inner shells, 9 = spikes/beads
+float shell(vec3 p, float R, float lev){
+  float r = length(p), th = .028 * R, d0 = abs(r - R) - th;
+  if (d0 > .12 * R) return d0;                                                // far from this skin: the holes can't matter
+  vec3 n = rotY(lev * 1.7 + t * .03 * lev) * rotX(lev * .9) * (p / max(r, 1e-4));
+  return smax(d0, -holeD(n, R), edge * R);
+}
+float spikes(vec3 p, float R){
+  float r = length(p), sp = 1e9, maxL = .32 + 3.8 * mark;
+  if (r < .78 * R) return .78 * R - r + .01;
+  if (r > R * (1. + maxL) + .25) return r - R * (1. + maxL) - .2;
+  for (int j = 0; j < NT; j++) {                                              // teeth: short, sharp, leaning with the flow
+    if (float(j) >= nT) break;
+    vec3 c = tB[j].xyz; if (dot(p / r, c) < .82) continue;
+    sp = min(sp, sdRoundCone(p, c * R * .985, c * R + tA[j].xyz * tB[j].w * R, tA[j].w * R, .0015));
+  }
+  for (int j = 0; j < NM; j++) {                                              // the mark's rays, perforated
+    vec3 s = mk[j].xyz; if (dot(p / r, s) < .55) continue;
+    float Ln = mk[j].w * (1. + .06 * sin(t * 1.3 + float(j) * 2.1));
+    vec3 a = s * R * .8, b = s * R * (1. + Ln);
+    float body = sdRoundCone(p, a, b, .14 * R, .006 * R);
+    for (int h = 0; h < 3; h++) {                                             // through-holes along z, shrinking to the tip
+      float f = .3 + .2 * float(h), rh = .055 * R * (1. - .3 * float(h)) * (.4 + .6 * mark);
+      vec3 cen = mix(s * R, b, f);
+      body = smax(body, -(length((p - cen).xy) - rh), edge * R * .5);
+    }
+    sp = min(sp, body);
+    for (int b2 = 0; b2 < 4; b2++) { float fb = float(b2); vec3 c = s * R * (1. + Ln + .08 + fb * (.07 + .02 * fb)); sp = min(sp, length(p - c) - .022 * R * pow(.7, fb)); }
+  }
+  return sp;
+}
 vec2 map(vec3 p){
   float R = open, d = shell(p, R, 0.), id = 0.;
   for (int l = 1; l < 4; l++) { if (float(l) >= nLev) break; float dl = shell(p, R * pow(K, float(l)), float(l)); if (dl < d) { d = dl; id = float(l); } }
-  float sp = 1e9;
-  for (int j = 0; j < NS; j++) {
-    vec3 s = spikes[j].xyz; float L = spikes[j].w * (1. + .12 * sin(t * 1.3 + float(j) * 2.1)), fat = j < 12 ? .15 : .07;
-    vec3 side = normalize(cross(s, vec3(.3, .7, .2))); vec3 bend = side * .06 * sin(t * .9 + float(j));
-    sp = min(sp, sdRoundCone(p - bend * smoothstep(R, R + L, dot(p, s)), s * R * .8, s * (R + L), fat * max(R, .25), .01));
-    int nb = j < 12 ? 4 : 2;
-    for (int b = 0; b < 4; b++) { if (b >= nb) break; float fb = float(b); vec3 c = s * (R + L + .08 + fb * (.07 + .02 * fb)) + bend; sp = min(sp, length(p - c) - .024 * pow(.7, fb)); }
-  }
-  float dd = smin(d, sp, .07 * max(R, .3));
-  return vec2(dd, sp < d ? 9. : id);
+  float sp = spikes(p, R);
+  return vec2(smin(d, sp, edge * 1.5 * R), sp < d ? 9. : id);
 }
-vec3 nrm(vec3 p){ vec2 e = vec2(.0007, 0); return normalize(vec3(map(p + e.xyy).x - map(p - e.xyy).x, map(p + e.yxy).x - map(p - e.yxy).x, map(p + e.yyx).x - map(p - e.yyx).x)); }
+vec3 nrm(vec3 p){ vec2 e = vec2(.0006, 0); return normalize(vec3(map(p + e.xyy).x - map(p - e.xyy).x, map(p + e.yxy).x - map(p - e.yxy).x, map(p + e.yyx).x - map(p - e.yyx).x)); }
 void main(){
   vec2 uv = (gl_FragCoord.xy - .5 * res) / res.y;
   mat3 C = rotY(camYaw) * rotX(camPitch);
   vec3 ro = C * vec3(0, 0, camD), rd = C * normalize(vec3(uv, -1.75));
   float tt = 0., hitId = -1., minR = 1e9; vec3 p;
-  for (int i = 0; i < 220; i++) { p = ro + rd * tt; minR = min(minR, length(p)); vec2 m = map(p); if (m.x < .0004 * tt) { hitId = m.y; break; } tt += m.x * .8; if (tt > 20.) break; }
-  vec3 paper = vec3(.98, .976, .96), ink = vec3(.851, .467, .341);                 // #FAF9F5 and the mark's #D97757
-  vec3 col; float voidMask = 0.;
-  bool insideView = minR < open * .96;                                               // the ray went in through a hole
-  if (hitId < 0.) { col = insideView ? vec3(.012, .01, .012) : paper; voidMask = insideView ? 1. : 0.; }
+  for (int i = 0; i < 260; i++) { p = ro + rd * tt; minR = min(minR, length(p)); vec2 m = map(p); if (m.x < .0003 * tt) { hitId = m.y; break; } tt += m.x * .6; if (tt > 24.) break; }
+  vec3 paper = vec3(.98, .976, .96), ink = vec3(.851, .467, .341);
+  vec3 col;
+  bool insideView = minR < open * .97;
+  if (hitId < 0.) col = insideView ? vec3(.012, .01, .012) : paper;
   else {
-    vec3 n = nrm(p), L = normalize(vec3(-.5, .8, .6)); float dif = max(dot(n, L), 0.), fr = pow(1. - max(dot(n, -rd), 0.), 3.);
-    float depth = hitId > 8. ? 0. : hitId;                                           // deeper shells sink toward black
-    bool inner = length(p) < open * (1. - .06 * pow(K, depth)) && hitId < 8.5 && dot(n, p) < 0.;  // an inner face of a shell
-    vec3 base = ink * (.55 + .5 * dif) + fr * vec3(1., .86, .78) * .35;
-    base = mix(base, ink * .18, inner ? .75 : 0.);
+    vec3 n = nrm(p), Lt = normalize(vec3(-.5, .8, .6)); float dif = max(dot(n, Lt), 0.), fr = pow(1. - max(dot(n, -rd), 0.), 3.);
+    float depth = hitId > 8. ? 0. : hitId;
+    bool inner = hitId < 8.5 && dot(n, p) < 0.;
+    vec3 base = ink * (.5 + .55 * dif) + fr * vec3(1., .86, .78) * .3;
+    base = mix(base, ink * .16, inner ? .78 : 0.);
     col = mix(base, vec3(.02), clamp(depth * .3, 0., .85));
-    voidMask = depth > 0. ? .4 : 0.;
   }
   o = vec4(col, 1.);
 }`;
 const gl = document.getElementById('gl').getContext('webgl2', { preserveDrawingBuffer: true });
 const sh = (ty, s) => { const x = gl.createShader(ty); gl.shaderSource(x, s); gl.compileShader(x); if (!gl.getShaderParameter(x, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(x)); return x; };
 const prog = gl.createProgram(); gl.attachShader(prog, sh(gl.VERTEX_SHADER, `#version 300 es
-in vec2 q; void main(){ gl_Position = vec4(q, 0, 1); }`)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS)); gl.linkProgram(prog); gl.useProgram(prog);
+in vec2 q; void main(){ gl_Position = vec4(q, 0, 1); }`)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS)); gl.linkProgram(prog);
+if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog)); gl.useProgram(prog);
 const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
 const loc = gl.getAttribLocation(prog, 'q'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
 const U = n => gl.getUniformLocation(prog, n);
-// holes: fibonacci sphere, jittered sizes (some big, many small, like the doodles)
-let s = 7; const R = () => (s = (s * 16807) % 2147483647) / 2147483647;
-// holes packed like foam: 16 big cells sized to almost touch their neighbours, then small bubbles in the gaps
-const ang = (a, b) => Math.acos(Math.max(-1, Math.min(1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2])));
-const cells = [];
-for (let i = 0; i < 16; i++) { const y = 1 - 2 * (i + .5) / 16, r = Math.sqrt(1 - y * y), ph = i * 2.39996 + (R() - .5) * .3; cells.push([Math.cos(ph) * r, y, Math.sin(ph) * r, 0]); }
-for (const c of cells) { const nn = Math.min(...cells.filter(d => d !== c).map(d => ang(c, d))); c[3] = nn * (.36 + .1 * R()); }
-for (let tries = 0; cells.length < 44 && tries < 4000; tries++) {
-  const z = 1 - 2 * R(), r = Math.sqrt(1 - z * z), a = R() * Math.PI * 2, c = [Math.cos(a) * r, z, Math.sin(a) * r, 0];
-  const gap = Math.min(...cells.map(d => ang(c, d) - d[3])); if (gap > .07) { c[3] = gap * (.55 + .2 * R()); cells.push(c); }
-}
-const H = cells.flat(); while (H.length < 44 * 4) H.push(0, 1, 0, 0);
-// the mark's 12 rays (angle deg CCW from +x, tip radius in the 248 box; centre hole radius 24.2): they lie in the
-// xy plane facing the camera, so front-on the rune's spikes ARE the starburst's rays
+const pad = (arr, n) => { const a = new Float32Array(n * 4); a.set(arr.slice(0, n * 4)); return a; };
+gl.uniform4fv(U('hA'), pad(L.holes.flatMap(h => [...h.c, Math.sin(h.a)]), NH)); gl.uniform4fv(U('hB'), pad(L.holes.flatMap(h => [...h.e1, Math.sin(h.b)]), NH));
+gl.uniform4fv(U('tA'), pad(L.teeth.flatMap(q => [...q.dir, q.r]), NT)); gl.uniform4fv(U('tB'), pad(L.teeth.flatMap(q => [...q.c, q.len]), NT));
+gl.uniform1f(U('nH'), L.holes.length); gl.uniform1f(U('nT'), L.teeth.length);
 const MARK = [[8.6, 118.4], [49.1, 121.1], [80.1, 116.1], [115.7, 129.3], [146.2, 119.9], [179, 117.8], [213.4, 111.6], [235.8, 117], [267, 118], [302.9, 116.5], [317.9, 121.1], [346.2, 120.5]];
-const SP = []; const MARKY = num('mark', 0);                    // 0 = splatter spikes (the rune), 1 = the mark's full rays (the starburst)
-for (const [deg, rr] of MARK) { const a = deg * Math.PI / 180; SP.push(Math.cos(a), Math.sin(a), 0, (.32 + .14 * R()) * (1 - MARKY) + (rr / 24.2 - 1) * MARKY); }
-for (let j = 0; j < 18; j++) { const z = 1 - 2 * R(), c = Math.sqrt(1 - z * z), a = R() * Math.PI * 2; SP.push(Math.cos(a) * c, Math.sin(a) * c, z, .12 + .3 * Math.pow(R(), 1.5)); }
-gl.uniform4fv(U('holes'), H); gl.uniform4fv(U('spikes'), SP);
 window.draw = (o = {}) => {
+  const mk = o.mark ?? num('mark', 0);
+  gl.uniform4fv(U('mk'), MARK.flatMap(([deg, rr], j) => { const a = deg * Math.PI / 180; return [Math.cos(a), Math.sin(a), 0, (.3 + .1 * ((j * 7) % 5) / 5) * (1 - mk) + (rr / 24.2 - 1) * mk]; }));
   gl.viewport(0, 0, 1920, 1080); gl.uniform2f(U('res'), 1920, 1080);
   gl.uniform1f(U('t'), o.t ?? num('t', 0)); gl.uniform1f(U('camD'), o.camD ?? num('camD', 6.2)); gl.uniform1f(U('camYaw'), o.yaw ?? num('yaw', .4)); gl.uniform1f(U('camPitch'), o.pitch ?? num('pitch', -.25));
-  gl.uniform1f(U('open'), o.open ?? num('open', 1)); gl.uniform1f(U('nLev'), o.nLev ?? num('nLev', 3));
+  gl.uniform1f(U('open'), o.open ?? num('open', 1)); gl.uniform1f(U('nLev'), o.nLev ?? num('nLev', 3)); gl.uniform1f(U('mark'), mk); gl.uniform1f(U('edge'), o.edge ?? num('edge', .012));
   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4); gl.finish(); return document.getElementById('gl').toDataURL('image/png');
 };
 window.ready = true;
