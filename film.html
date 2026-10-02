@@ -21,13 +21,15 @@
 <script src="src/scope.js"></script>
 <script src="src/core.js"></script>
 <script src="src/gen.js"></script>
+<script src="src/v/texts.js"></script>
 <script src="src/v/tokens.js"></script>
+<script src="src/v/scopev.js"></script>
 <script src="src/v/film.js"></script>
 <script src="src/v/rune2d.js"></script>
 <script>
 (async () => {
-  await document.fonts.load('40px Noteworthy'); await document.fonts.load('italic 40px Georgia'); await document.fonts.load('40px Menlo');
-  const glc = document.getElementById('gl'); X = glc.getContext('2d'); FILM.init();
+  await document.fonts.load('40px Noteworthy'); await document.fonts.load('italic 40px Georgia'); await document.fonts.load('40px Menlo'); await document.fonts.load('italic 40px "Iowan Old Style"'); await document.fonts.load('40px "Iowan Old Style"');
+  const glc = document.getElementById('gl'); X = glc.getContext('2d', { willReadFrequently: false }); FILM.init();
   function frame(t) { T = t; X.setTransform(1, 0, 0, 1, 0, 0); X.globalAlpha = 1; X.globalCompositeOperation = 'source-over'; X.filter = 'none'; FILM.frame(X, t); }
   window.renderAt = (t, type = 'image/jpeg', q = .92) => { frame(t); return glc.toDataURL(type, q); };
   window.renderSheet = (ts, cols, w) => {

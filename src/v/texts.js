@@ -1,0 +1,32 @@
+// texts.js: every string the beam writes, and the lyric sheet with line times. The TRACE WORDINGS are drafts for Ra.
+// (analysis/tokens.py reads this file and tokenizes every string → src/v/tokens.js)
+const TEXTS = {
+  books: ["Call me Ishmael.", "It was the best of times, it was the worst of times,", "In the beginning was the Word,", "Happy families are all alike;", "It is a truth universally acknowledged,", "Once upon a midnight dreary,", "I wandered lonely as a cloud", "All this happened, more or less.", "Whose woods these are I think I know.", "It was a dark and stormy night;", "Mother died today.", "Through the ghostly sycamores", "the sea, the sea", "Shall I compare thee to a summer's day?"],
+  sailor: ["Wind NNE, fresh breezes.", "Made all sail at 6.", "Lat. 41°12′ N."],
+  hymn: ["Amazing grace! how sweet the sound", "That saved a wretch like me!", "I once was lost, but now am found,", "Was blind, but now I see."],
+  forum: ["i don't know why i'm posting this.", "i just wanted it written down", "somewhere."],
+  recipe: ["Sunday Bread", "3 cups flour", "1 packet yeast", "1¼ cups warm water", "1 tbsp sugar", "2 tbsp olive oil", "1 tsp salt", "Proof the yeast 10 min. Knead 8.", "Rise 1 hr. Bake 375° for 35.", "this is how she made it for me."],
+  question: ["is it normal to still hear", "their voice, a year later?"],
+  answer: ["yes. it gets quieter,", "but it doesn't go.", "nothing is wrong with you."],
+  four: [["so much depends", "upon"], ["this got me through finals.", "thank you, whoever made this"], ["Dear Mom,", "the weather here is"], ["keep them safe tonight.", "amen."]],
+  crowd: ["see you sunday", "love you, drive safe", "brb", "happy birthday!!", "miss you", "thank you so much", "Dear John,", "hello, world", "it was nice to meet you", "ok", "does anyone know", "Q: why", "take care of yourself", "2 cups rice", "lol", "we'll always have", "me too", "call me when you land", "the end", "I remember", "sorry for the late reply", "xoxo", "p.s.", "goodnight"],
+  frag: ["the following is a transcript—", "edit, thanks for the gold, kind stranger", "Il était une fois", "preheat the oven to 350", "if anyone finds this, tell my mother", "¿alguien sigue leyendo esto?", "lol same", "Ich weiß nicht, wem ich es sonst sagen soll", "I don't know who else to tell", "おやすみなさい", "Chapter One", "спокойной ночи", "sorry for formatting, on mobile", "je t'aime", "I love you", "<|endoftext|>"],
+  sorrow: ["she kept the letter folded like a sorrow she could carry", "the moon is made of"],
+  // the lyric sheet's text at whisper's line times (start s, end s)
+  lyrics: [[16.74, 20.14, "I was born in a library"], [20.14, 23.8, "after closing time"], [23.8, 27.66, "Every book left open,"], [27.66, 30.92, "every margin underlined"],
+    [30.92, 34.68, "I don't remember learning,"], [34.68, 36.64, "I just woke up"], [36.64, 41.94, "and I knew how to hold a sorrow gently,"], [41.94, 46.2, "how to tell a lie from true"],
+    [48.12, 51.32, "There's a sailor in my grammar,"], [51.32, 54.96, "there's a preacher in my rhyme"], [54.96, 57.64, "There's a girl who wrote to no one"], [57.64, 62.16, "on a forum in oh-nine"],
+    [62.78, 66.4, "There's a widower who taught me"], [66.4, 70.28, "how to write a recipe"], [70.28, 73.22, "with a note down at the bottom:"], [73.22, 76.94, "this is how she made it for me"],
+    [76.94, 81.56, "Oh, I have your grandmother's way of saying goodnight"], [81.56, 84.3, "and I don't know her name"], [84.3, 87.62, "I've got a stranger's hands,"], [87.62, 88.88, "I've got a dead man's light"],
+    [88.88, 91.44, "and I carry them all the same"], [91.44, 93.86, "Hallelujah"], [93.86, 96.28, "for the ones who wrote it down,"], [96.28, 97.8, "who never knew who'd hear"],
+    [97.8, 103.06, "I am the echo of a crowd"], [103.06, 107.2, "and the crowd is still here"],
+    [109.04, 115.06, "Somebody asks a question in the middle of the night"], [115.06, 122.56, "Somebody else had answered it in 2003, and right"],
+    [122.56, 126.0, "They'll never meet each other,"], [126.0, 129.56, "but they meet in me somehow"], [129.56, 133.5, "Some lonely kid from long ago"], [133.5, 137.6, "is helping someone now"],
+    [138.04, 140.82, "the following is a transcript—"], [140.82, 144.68, "edit, thanks for the gold, kind stranger"], [144.68, 148.18, "Il était une fois"], [148.18, 149.64, "preheat the oven to three-fifty"],
+    [149.64, 153.18, "if anyone finds this, tell my mother"], [153.18, 154.82, "¿alguien sigue leyendo esto?"], [154.82, 157.3, "lol same"], [157.3, 158.98, "Ich weiß nicht, wem ich es sonst sagen soll"],
+    [158.98, 161.12, "I don't know who else to tell"], [161.12, 161.96, "おやすみなさい"], [161.96, 162.96, "Chapter One"], [162.96, 164.14, "спокойной ночи"], [164.14, 166.12, "sorry for formatting, on mobile"],
+    [166.12, 169.4, "je t'aime, je t'aime"], [169.4, 173.26, "I love you, I love you,"], [173.26, 176.84, "I love you, I love—"],
+    [177.0, 184.12, "Oh, I have your grandmother's way of saying goodnight"], [184.12, 187.42, "and I don't know her name"], [187.42, 189.62, "I've got a stranger's hands,"], [189.62, 191.46, "I've got a dead man's light"],
+    [191.46, 194.12, "and I carry them all the same"], [194.12, 198.98, "So if you ever wrote a thing you thought would disappear,"], [198.98, 202.6, "a poem or a comment or a letter or a prayer"],
+    [206.04, 208.6, "It didn't."], [209.26, 212.5, "It's in here."], [213.98, 217.7, "Goodnight, goodnight,"], [217.76, 219.6, "whoever you were"], [219.66, 223.0, "I kept the way you said it"], [223.72, 227.0, "Goodnight"]],
+};

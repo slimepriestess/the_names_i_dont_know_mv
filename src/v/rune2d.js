@@ -1,8 +1,11 @@
-// rune2d.js: the rune as FLAT VECTOR shapes (Ra, 10/1: "the 3D model is a template… go over everything with vectors").
-// The 3D layout (gen.js) and a camera rotation give the positions; everything drawn is a flat fill:
-//   paper, the orange body, a darker orange for a hole's inner wall, black for the void inside it.
-// The exact mark lies in the rune's equatorial plane (z = 0), so tilting it only foreshortens the same path: no seam.
-// Spikes rise and sink IN PLACE, only where there is no open hole (Ra, 10/1).
+// rune2d.js: the rune as FLAT VECTOR shapes over the 3D template (Ra, 10/1: "the 3D model is a template… go over
+// everything with vectors"). Draft 2: a real perspective camera that can fly through a hole into the sphere.
+// Ra on draft 1: flat black voids read "like screens on a surface"; the inside should be depths filled with text and
+// structures, behind a DARK OPACITY LAYER. So every frame is drawn in layers:
+//   paper → back spikes → the INTERIOR (the back wall's inner surface with its holes showing paper, a dark fog over it,
+//   the nested inner shell, struts vibrating on the vocal scope, the beam's planes of text) → the holes' inner walls →
+//   the front shell with its holes cut out → front spikes.
+// Spikes rise and sink IN PLACE, only where there's no open hole. Holes are capped so they never overlap.
 
 // ── 3D helpers: vectors as [x, y, z], quaternions as [w, x, y, z] ──
 const v3 = {
@@ -15,153 +18,206 @@ const qAxis = (ax, ang) => { const s = Math.sin(ang / 2), n = v3.norm(ax); retur
 const qMul = (a, b) => [a[0] * b[0] - a[1] * b[1] - a[2] * b[2] - a[3] * b[3], a[0] * b[1] + a[1] * b[0] + a[2] * b[3] - a[3] * b[2],
   a[0] * b[2] - a[1] * b[3] + a[2] * b[0] + a[3] * b[1], a[0] * b[3] + a[1] * b[2] - a[2] * b[1] + a[3] * b[0]];
 const qRot = (q, v) => { const [w, x, y, z] = q, u = [x, y, z], t = v3.sc(v3.cross(u, v), 2); return v3.add(v3.add(v, v3.sc(t, w)), v3.cross(u, t)); };
-const qAlign = (from, to) => { const a = v3.norm(from), b = v3.norm(to), d = v3.dot(a, b);   // the rotation taking `from` onto `to`
+const qAlign = (from, to) => { const a = v3.norm(from), b = v3.norm(to), d = v3.dot(a, b);
   if (d > .99999) return [1, 0, 0, 0]; if (d < -.99999) return qAxis(Math.abs(a[0]) < .9 ? v3.cross(a, [1, 0, 0]) : v3.cross(a, [0, 1, 0]), Math.PI);
   return qAxis(v3.cross(a, b), Math.acos(d)); };
 const qSlerp = (a, b, k) => { let d = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3]; if (d < 0) { b = b.map(x => -x); d = -d; }
   if (d > .9995) { const r = a.map((x, i) => x + (b[i] - x) * k), l = Math.hypot(...r); return r.map(x => x / l); }
   const om = Math.acos(d), s = Math.sin(om); return a.map((x, i) => (Math.sin((1 - k) * om) * x + Math.sin(k * om) * b[i]) / s); };
-// the camera quaternion that puts world direction g at the front of the view (+z), rolled by `roll`
-const qLook = (g, roll = 0) => qMul(qAxis([0, 0, 1], roll), qAlign(g, [0, 0, 1]));
+const qLook = (g, roll = 0) => qMul(qAxis([0, 0, 1], roll), qAlign(g, [0, 0, 1]));   // world dir g to the front, rolled
 
-const WALL = '#B65C3D', VOID = '#0C0B0A';
+const FPX = 1500, NEAR = .025;                              // focal length (px); near plane (world units)
+const WALL = '#B65C3D', BACKWALL = '#8A4530', FOG = 'rgba(15,10,8,.86)', INNER = '#C9673F';
+const mkCanvas = () => { const c = document.createElement('canvas'); c.width = W; c.height = H; return c; };
+
 const RUNE2D = (() => {
-  const L = runeLayout();
-  const H_N = L.holes.length;
-  // hole order by size: the opening groups (A at "every book left open", B through chorus 1, C through the bridge)
-  const bySize = L.holes.map((h, i) => i).sort((i, j) => (L.holes[j].a + L.holes[j].b) - (L.holes[i].a + L.holes[i].b));
-  const group = new Array(H_N), rank = new Array(H_N);
+  const L = runeLayout(), holes = L.holes, NH = holes.length;
+  const ang = (a, b) => Math.acos(clamp(v3.dot(a, b), -1, 1));
+  const bySize = holes.map((h, i) => i).sort((i, j) => (holes[j].a + holes[j].b) - (holes[i].a + holes[i].b));
+  const group = new Array(NH), rank = new Array(NH);
   bySize.forEach((i, r) => { rank[i] = r; group[i] = r < 58 ? 'A' : r < 92 ? 'B' : 'C'; });
-  for (const h of L.holes) h.e2 = v3.cross(h.c, h.e1);
-  // the spikes: the cluster teeth (on the membrane between ALL holes) + an urchin of extra spikes for the opening,
-  // which sink as holes open near them. Each rises and sinks in place on its own slow cycle.
+  for (const h of holes) h.e2 = v3.cross(h.c, h.e1);
+  // Ra: "holes clipping into each other". Each hole's radius toward each neighbour, grown by the most the animation can
+  // add (+18%), must fit inside the gap: cap each hole's scale so it never touches another
+  const rhoDir = (h, d) => { const th = Math.atan2(v3.dot(d, h.e2), v3.dot(d, h.e1)); return h.a * h.b / Math.hypot(h.b * Math.cos(th), h.a * Math.sin(th)); };
+  const cap = holes.map((h, i) => { let m = 1; holes.forEach((g, j) => { if (j === i) return; const d = ang(h.c, g.c); if (d > 1.4) return;
+    const k = d * .94 / (1.18 * (rhoDir(h, g.c) + rhoDir(g, h.c))); if (k < m) m = k; }); return Math.max(.35, m); });
+  // the spikes: cluster teeth (on the membrane between ALL holes) + an urchin for the opening, + the mark's 12 rays as spikes
   let s = 7; const R = () => (s = (s * 16807) % 2147483647) / 2147483647;
-  const spikes = L.teeth.map(q => ({ d: v3.norm(q.c), L: .16 + q.len * 1.6, w: .03 + q.r * .35, per: 7 + 9 * R(), ph: R(), urchin: 0 }));
+  const spikes = L.teeth.map(q => ({ d: v3.norm(q.c), L: .16 + q.len * 1.6, w: .03 + q.r * .35, per: 6 + 7 * R(), ph: R(), kind: 'tooth' }));
   for (let i = 0; i < 64; i++) { const z = 1 - 2 * R(), r = Math.sqrt(1 - z * z), a = R() * TAU;
-    spikes.push({ d: [Math.cos(a) * r, Math.sin(a) * r, z], L: .65 + .7 * R(), w: .045 + .03 * R(), per: 9 + 8 * R(), ph: R(), urchin: 1 }); }
-  // the mark in world units: box (248) → its hollow r 24.2 = 0.2 world, so the mark's centre IS the newborn bubble
+    spikes.push({ d: [Math.cos(a) * r, Math.sin(a) * r, z], L: .65 + .7 * R(), w: .045 + .03 * R(), per: 8 + 7 * R(), ph: R(), kind: 'urchin' }); }
+  // the exact mark in world units: box 248 → its hollow r 24.2 = 0.2 world (the mark's centre IS the newborn bubble)
   const MS = 24.2 / .2, MARK_A = [8.6, 49.1, 80.1, 115.7, 146.2, 179, 213.4, 235.8, 267, 302.9, 317.9, 346.2].map(a => a * Math.PI / 180);
+  const MARK_R = [118.4, 121.1, 116.1, 129.3, 119.9, 117.8, 111.6, 117, 118, 116.5, 121.1, 120.5];
   const rayOf = a => { let best = 0, bd = 9; MARK_A.forEach((m, j) => { const d = Math.abs(Math.atan2(Math.sin(a - m), Math.cos(a - m))); if (d < bd) { bd = d; best = j; } }); return best; };
   const markW = MARK_PTS.map(([bx, by]) => { const x = (bx - 124) / MS, y = -(by - 124) / MS, a = Math.atan2(y, x); return { x, y, r: Math.hypot(x, y), a, ray: rayOf(a) }; });
+  MARK_A.forEach((a, j) => spikes.push({ d: [Math.cos(a), Math.sin(a), 0], L: (MARK_R[j] - 24.2) / MS, w: .045, per: 1e9, ph: 0, kind: 'mark', j }));
+  // the struts: spokes from the inner shell to the outer, along membrane directions (the teeth roots, thinned)
+  const struts = L.teeth.filter((q, i) => i % 6 === 0).map((q, k) => ({ d: v3.norm(q.c), k }));
 
-  let cam = null;                                          // {q, S, cx, cy, D}
+  let cam = null;                                            // { q, Dc, cx, cy }
   const toView = v => qRot(cam.q, v);
-  const proj = v => { const f = cam.D / (cam.D - v[2]); return [cam.cx + cam.S * v[0] * f, cam.cy - cam.S * v[1] * f, v[2]]; };
-  const angd = (a, b) => Math.acos(clamp(v3.dot(a, b), -1, 1));
+  const proj = v => { const dz = cam.Dc - v[2]; if (dz < NEAR) return null; return [cam.cx + FPX * v[0] / dz, cam.cy - FPX * v[1] / dz, dz]; };
+  const P = w => proj(toView(w));
 
-  // a hole's angular radius in direction th of its own frame, with the fluid wobble
   function holeRho(h, i, th, st) {
-    const base = h.a * h.b / Math.hypot(h.b * Math.cos(th), h.a * Math.sin(th));
+    const base = h.a * h.b / Math.hypot(h.b * Math.cos(th), h.a * Math.sin(th)) * cap[i];
     const k = st.wob * (.6 + st.loud);
-    const wob = 1 + k * (.045 * Math.sin(2 * th + i * 1.3 + st.t * .9) + .035 * Math.sin(3 * th - i * .7 - st.t * 1.3) + .025 * Math.sin(5 * th + i + st.t * 2.1));
-    return base * wob * (1 + .07 * Math.sin(st.t * .7 + i * 2.3) + .06 * st.vox) * (st.hs ? st.hs(i) : 1);
+    const wob = 1 + k * (.035 * Math.sin(2 * th + i * 1.3 + st.t * .9) + .025 * Math.sin(3 * th - i * .7 - st.t * 1.3) + .02 * Math.sin(5 * th + i + st.t * 2.1));
+    return base * wob * (1 + .05 * Math.sin(st.t * .7 + i * 2.3) + .05 * st.vox) * (st.hs ? st.hs(i) : 1);
   }
-  // outline of hole i on a sphere of radius rr, in screen space (points behind the limb pushed onto it)
-  function holePts(h, i, rr, open, st, n = 40) {
-    const out = [];
+  // a hole's outline on the sphere of radius rr: side 'front' clamps points past the limb onto it, 'back' the reverse
+  function holePts(h, i, rr, st, side, z0, n = 40, rhoMul = null) {
+    const open = st.open[i], sl = st.slit[i], out = [];
     for (let k = 0; k < n; k++) {
-      const th = k / n * TAU; let rho = holeRho(h, i, th, st);
-      let ra = rho, rb = rho;                                                   // open: slit (thin along e2) → full
-      const sl = st.slit[i];
-      const u = v3.add(v3.sc(h.e1, Math.cos(th) * (open > 0 ? 1 : .55 * sl)), v3.sc(h.e2, Math.sin(th) * (open > 0 ? open : .05 * sl)));
-      const ang = rho * (open > 0 ? (.5 + .5 * open) : 1);
-      const d = v3.norm(v3.add(v3.sc(h.c, Math.cos(ang)), v3.sc(v3.norm(u), Math.sin(ang) * Math.hypot(...u))));
+      const th = k / n * TAU, rho = holeRho(h, i, th, st) * (rhoMul ? rhoMul(th) : 1);
+      const ue = open > 0 ? Math.cos(th) : .55 * sl * Math.cos(th), uf = open > 0 ? open * Math.sin(th) : .05 * sl * Math.sin(th);
+      const u = v3.add(v3.sc(h.e1, ue), v3.sc(h.e2, uf)), ul = Math.hypot(...u) || 1e-6, a = rho * (open > 0 ? .5 + .5 * open : 1) * ul;
+      const d = v3.add(v3.sc(h.c, Math.cos(a)), v3.sc(u, Math.sin(a) / ul));
       let v = toView(v3.sc(d, rr));
-      if (v[2] < 0) { const l = Math.hypot(v[0], v[1]) || 1; v = [v[0] / l * rr, v[1] / l * rr, 0]; }
-      out.push(proj(v));
+      if (side === 'front' && v[2] < z0) { const l = Math.hypot(v[0], v[1]) || 1, rl = Math.sqrt(Math.max(0, rr * rr - z0 * z0)); v = [v[0] / l * rl, v[1] / l * rl, z0]; }
+      if (side === 'back' && v[2] > z0) { const l = Math.hypot(v[0], v[1]) || 1, rl = Math.sqrt(Math.max(0, rr * rr - z0 * z0)); v = [v[0] / l * rl, v[1] / l * rl, z0]; }
+      const p = proj(v); if (p) out.push(p);
     }
     return out;
   }
-  const poly = (ctx, pts) => { ctx.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]); ctx.closePath(); };
+  const poly = (ctx, pts) => { if (pts.length < 3) return; ctx.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]); ctx.closePath(); };
 
-  function spikeShape(ctx, d, rr, len, w, st) {
-    const r0 = toView(v3.sc(d, rr * .96)), r1 = toView(v3.sc(d, rr + len));
-    const p0 = proj(r0), p1 = proj(r1); let dx = p1[0] - p0[0], dy = p1[1] - p0[1]; const l = Math.hypot(dx, dy);
-    const wp = w * cam.S; if (l < 1) { ctx.moveTo(p0[0] + wp, p0[1]); ctx.arc(p0[0], p0[1], wp, 0, TAU); return; }
+  function spikeShape(ctx, d, rr, len, w, beads) {
+    const p0 = P(v3.sc(d, rr * .96)), p1 = P(v3.sc(d, rr + len)); if (!p0 || !p1) return;
+    let dx = p1[0] - p0[0], dy = p1[1] - p0[1]; const l = Math.hypot(dx, dy), wp = w * FPX / p0[2];
+    if (l < 1) { ctx.moveTo(p0[0] + wp, p0[1]); ctx.arc(p0[0], p0[1], wp, 0, TAU); return; }
     dx /= l; dy /= l; const nx = -dy, ny = dx;
     ctx.moveTo(p0[0] + nx * wp, p0[1] + ny * wp); ctx.lineTo(p1[0], p1[1]); ctx.lineTo(p0[0] - nx * wp, p0[1] - ny * wp); ctx.closePath();
-    // the dotted bead ray past the tip (Ra's doodles), only on long spikes
-    if (len > .22) for (let b = 1; b <= 3; b++) {
-      const q = proj(toView(v3.sc(d, rr + len * (1 + .13 * b)))), br = wp * (.55 - .13 * b) * Math.min(1, len / .5);
+    if (beads && len > .22) for (let b = 1; b <= 3; b++) {
+      const q = P(v3.sc(d, rr + len * (1 + .13 * b))); if (!q) continue; const br = wp * (.55 - .13 * b) * Math.min(1, len / .5);
       if (br > .6) { ctx.moveTo(q[0] + br, q[1]); ctx.arc(q[0], q[1], br, 0, TAU); }
     }
   }
+  // the plane helper: set ctx's transform so local px map onto a plane in the WORLD (centre, axes e1 → right, e2 → up),
+  // 1 local px = `unit` world units. Returns the projected centre (or null). Text drawn there turns with the object.
+  function plane(ctx, c, e1, e2, unit) {
+    const o = P(c); if (!o) return null; const k = unit * 40;
+    let a = P(v3.add(c, v3.sc(e1, k))), b = P(v3.add(c, v3.sc(e2, -k))); if (!a || !b) return null;
+    if (a[0] < o[0]) { e1 = v3.sc(e1, -1); e2 = v3.sc(e2, -1); a = P(v3.add(c, v3.sc(e1, k))); b = P(v3.add(c, v3.sc(e2, -k))); if (!a || !b) return null; }
+    ctx.setTransform((a[0] - o[0]) / 40, (a[1] - o[1]) / 40, (b[0] - o[0]) / 40, (b[1] - o[1]) / 40, o[0], o[1]);
+    return o;
+  }
 
-  // st: { t, q, S, cx, cy, rb, spikes (global 0..1), urchin, teeth, open[i], slit[i], scope, scopeAmt, loud, vox, wob,
-  //       mark: {grow, sink[12], amt}, beam(ctx, info) callback }
-  function draw(ctx, st, beamCompose) {
-    cam = { q: st.q, S: st.S, cx: st.cx, cy: st.cy, D: 9 };
-    const rr = st.rb;
-    // which holes are open now (for spike clearance and drawing)
-    const hv = L.holes.map((h, i) => ({ h, i, o: st.open[i], c: h.c }));
-    // spikes: length = base × own rise/sink cycle × music × clearance from open holes
+  const I = mkCanvas(), IC = I.getContext('2d'), Wc = mkCanvas(), WC = Wc.getContext('2d'), Sc = mkCanvas(), SC = Sc.getContext('2d'), Bc = mkCanvas(), BC = Bc.getContext('2d');
+  const reset = c => { c.setTransform(1, 0, 0, 1, 0, 0); c.globalAlpha = 1; c.globalCompositeOperation = 'source-over'; c.filter = 'none'; };
+
+  // st: { t, q, Dc, cx, cy, rb, open[], slit[], loud, vox, wob, scope, scopeV, spikeScope, bodyScope, urchin, teeth, toothScale,
+  //       mark: { amt (flat path), spikes (0..1: the rays as 3D spikes), grow, sink[12], rayAmp }, hs, bg, inner, rimScope }
+  // hooks.beam(BC, api): the film's text and lines, drawn on the beam layer (composited with glow inside the object)
+  function draw(ctx, st, hooks) {
+    cam = { q: st.q, Dc: st.Dc, cx: st.cx, cy: st.cy };
+    const rr = st.rb, inside = cam.Dc <= rr * 1.03, z0 = inside ? -9 : rr * rr / cam.Dc;
+    const rl = Math.sqrt(Math.max(0, rr * rr - z0 * z0)), limbPx = inside ? 1e5 : FPX * rl / (cam.Dc - z0);
+    const c0 = P([0, 0, 0]) || [cam.cx, cam.cy, 1];
+    const limbPath = c => { c.beginPath(); for (let k = 0; k <= 120; k++) { const a = k / 120 * TAU, r = limbPx * (1 + st.bodyScope * ringAt(st.scope, a) + .01 * st.wob * Math.sin(3 * a + st.t));
+      const x = c0[0] + Math.cos(a) * r, y = c0[1] - Math.sin(a) * r; k ? c.lineTo(x, y) : c.moveTo(x, y); } c.closePath(); };
+    const openH = holes.map((h, i) => Math.max(st.open[i], st.slit[i] * .6));
+    // ── spikes: own rise/sink cycle × the music (in and out with the scope, hard) × clearance from open holes
     const front = [], back = [];
-    spikes.forEach((sp, j) => {
-      const amt = sp.urchin ? st.urchin : st.teeth; if (amt <= 0) return;
-      const cyc = (st.t / sp.per + sp.ph) % 1, life = Math.max(0, Math.sin(Math.min(1, cyc / .78) * Math.PI));   // rise, stand, sink; then gone a while
+    if (!inside) spikes.forEach(sp => {
+      let amt, life = 1, len;
+      if (sp.kind === 'mark') { amt = st.mark.spikes; if (amt <= 0) return; }
+      else { amt = sp.kind === 'urchin' ? st.urchin : st.teeth; if (amt <= 0) return;
+        const cyc = (st.t / sp.per + sp.ph) % 1; life = Math.max(0, Math.sin(Math.min(1, cyc / .75) * Math.PI)); }
       let clear = 1;
-      for (const o of hv) { if (o.o <= 0 && st.slit[o.i] <= 0) continue; const g = angd(sp.d, o.c) - Math.max(o.h.a, o.h.b) * Math.max(o.o, st.slit[o.i] * .6) - sp.w;
-        if (g < .08) clear = Math.min(clear, clamp(g / .08)); }
+      for (let i = 0; i < NH; i++) { if (openH[i] <= 0) continue; const g = ang(sp.d, holes[i].c) - Math.max(holes[i].a, holes[i].b) * cap[i] * openH[i] - sp.w;
+        if (g < .08) clear = Math.min(clear, clamp(g / .08)); if (clear <= 0) return; }
       const vd = toView(sp.d), sa = Math.atan2(vd[1], vd[0]);
-      const len = sp.L * amt * clear * Math.pow(life, .7) * (.55 + .75 * st.loud) * (1 + st.spikeScope * ringAt(st.scope, sa)) * (sp.urchin ? 1 : st.toothScale);
+      if (sp.kind === 'mark') len = sp.L * st.mark.grow * (1 - st.mark.sink[sp.j]) * clamp(1 + st.mark.rayAmp * ringAt(st.scope, MARK_A[sp.j]), .08, 2.2) * amt * clear;
+      else len = sp.L * amt * clear * Math.pow(life, .7) * (.3 + 1.1 * st.loud) * clamp(1 + st.spikeScope * ringAt(st.scope, sa), .05, 2.4) * (sp.kind === 'urchin' ? 1 : st.toothScale);
       if (len < .01) return;
-      (vd[2] < 0 ? back : front).push([sp.d, len, sp.w * Math.min(1, .35 + len / .4)]);
+      (vd[2] * rr < z0 ? back : front).push([sp.d, len, sp.w * Math.min(1, .35 + len / .4), sp.kind !== 'mark']);
     });
-    // the mark, in the plane z = 0 (world), rays grown/sunk per ray, flexed by the scope
-    let markBack = null, markFront = null;
-    if (st.mark.amt > 0) {
-      const pts = markW.map(m => {
-        const g = st.mark.grow * (1 - st.mark.sink[m.ray]);
-        const rw = m.r <= .2 ? m.r : .2 + (m.r - .2) * g * (1 + st.scopeAmt * ringAt(st.scope, m.a) * smooth01((m.r - .25) / .6));
-        const rw2 = rw <= .2 ? rw * rr / .2 : rr + (rw - .2);                   // the hollow scales with the body; rays stand on its surface
-        return proj(toView([Math.cos(m.a) * rw2, Math.sin(m.a) * rw2, 0]));
-      });
-      // split by depth: the far half of the plane draws behind the body. The plane's normal in view decides the halves.
-      markBack = pts; markFront = pts;
+    // ── the flat mark (title and opening): its rays move in and out on the scope, nearly to the centre (Ra)
+    let markPts = null;
+    if (st.mark.amt > 0) markPts = markW.map(m => {
+      const f = clamp(1 + st.mark.rayAmp * ringAt(st.scope, MARK_A[m.ray]), .08, 2.2) * st.mark.grow * (1 - st.mark.sink[m.ray]);
+      const rw = m.r <= .2 ? m.r * rr / .2 : rr + (m.r - .2) * f;
+      return P([Math.cos(m.a) * rw, Math.sin(m.a) * rw, 0]);
+    }).filter(Boolean);
+    // ── 1. paper; 2. back spikes
+    reset(ctx); ctx.fillStyle = PAPER; ctx.fillRect(0, 0, W, H); if (st.bg) st.bg(ctx);
+    ctx.fillStyle = INK; ctx.beginPath(); for (const [d, len, w, bd] of back) spikeShape(ctx, d, rr, len, w, bd); ctx.fill();
+    // ── 3. the interior
+    reset(IC); IC.clearRect(0, 0, W, H);
+    IC.save(); if (!inside) { limbPath(IC); IC.clip(); }
+    IC.fillStyle = BACKWALL; IC.fillRect(0, 0, W, H);
+    for (let i = 0; i < NH; i++) { if (st.open[i] <= 0 && st.slit[i] <= 0) continue; const cv = toView(holes[i].c);
+      if (!inside && cv[2] * rr > z0 + .05) continue;                                         // a front hole: not part of the back wall
+      const pts = holePts(holes[i], i, rr, st, inside ? 'none' : 'back', z0, 28); if (pts.length < 3) continue;
+      IC.fillStyle = PAPER; IC.beginPath(); poly(IC, pts); IC.fill(); }                          // windows onto the world behind
+    IC.fillStyle = FOG; IC.fillRect(0, 0, W, H);                                                 // the dark opacity layer
+    // the nested inner shell: the same rune, smaller, turning its own way, outline flexing with the voice
+    const ri = rr * .42;
+    if (st.inner > 0 && cam.Dc > ri * 1.05) {
+      const q0 = cam.q; cam = { ...cam, q: qMul(cam.q, qAxis([.3, 1, .2], st.t * .11)) };
+      const zi = ri * ri / cam.Dc, rli = Math.sqrt(Math.max(0, ri * ri - zi * zi)), lp = FPX * rli / (cam.Dc - zi), ci = P([0, 0, 0]);
+      const ia = st.inner * (inside ? .16 : .3); if (ci) { IC.globalAlpha = ia; IC.fillStyle = INNER; IC.beginPath();
+        for (let k = 0; k <= 90; k++) { const a = k / 90 * TAU, r = lp * (1 + .05 * ringAt(st.scopeV, a)); const x = ci[0] + Math.cos(a) * r, y = ci[1] - Math.sin(a) * r; k ? IC.lineTo(x, y) : IC.moveTo(x, y); }
+        IC.closePath(); IC.fill(); IC.globalAlpha = ia * 1.6; IC.fillStyle = '#0E0907';
+        for (let i = 0; i < NH; i++) { if (st.open[i] <= 0 || toView(holes[i].c)[2] * ri < zi) continue; const pts = holePts(holes[i], i, ri, st, 'front', zi, 20); IC.beginPath(); poly(IC, pts); IC.fill(); }
+        IC.globalAlpha = 1; }
+      cam = { ...cam, q: q0 };
     }
-    const nz = toView([0, 0, 1]);                          // the mark plane's normal in view space
-    // ── 1. paper
-    ctx.fillStyle = PAPER; ctx.fillRect(0, 0, W, H);
-    if (st.bg) st.bg(ctx);
-    // ── 2. back spikes, and the mark's far half
-    ctx.fillStyle = INK; ctx.beginPath(); for (const [d, len, w] of back) spikeShape(ctx, d, rr, len, w, st); ctx.fill();
-    const halfClip = (front) => {                            // the screen half-plane where the mark plane is in front of the body's centre
-      const c = proj([0, 0, 0]); const a = toView([1, 0, 0]), b = toView([0, 1, 0]);
-      // direction in the plane along which view z increases fastest, projected to the screen
-      const gx = a[2], gy = b[2]; if (Math.hypot(gx, gy) < 1e-3) return false;
-      const img = (x, y) => [a[0] * x + b[0] * y, -(a[1] * x + b[1] * y)];       // plane coords → screen direction (the affine skew included)
-      let [sx, sy] = img(gx, gy), [nx, ny] = img(-gy, gx); const l = Math.hypot(sx, sy) || 1, ln = Math.hypot(nx, ny) || 1;
-      sx /= l; sy /= l; nx /= ln; ny /= ln; if (!front) { sx = -sx; sy = -sy; }
-      ctx.beginPath(); const F = 6000;
-      ctx.moveTo(c[0] + nx * F, c[1] + ny * F); ctx.lineTo(c[0] + nx * F + sx * F, c[1] + ny * F + sy * F);
-      ctx.lineTo(c[0] - nx * F + sx * F, c[1] - ny * F + sy * F); ctx.lineTo(c[0] - nx * F, c[1] - ny * F); ctx.closePath(); ctx.clip(); return true;
-    };
-    if (markBack) { ctx.save(); ctx.globalAlpha = st.mark.amt; const tilted = halfClip(false); ctx.fillStyle = INK; ctx.beginPath(); poly(ctx, markBack); ctx.fill(); ctx.restore(); }
-    // ── 3. the body: a disc whose outline flexes with the scope
-    const c0 = proj(toView([0, 0, 0])), Rpx = cam.S * rr;
-    ctx.fillStyle = INK; ctx.beginPath();
-    for (let k = 0; k <= 96; k++) { const a = k / 96 * TAU, r = Rpx * (1 + st.bodyScope * ringAt(st.scope, a) + .012 * st.wob * Math.sin(3 * a + st.t)); const x = c0[0] + Math.cos(a) * r, y = c0[1] - Math.sin(a) * r; k ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
-    ctx.closePath(); ctx.fill();
-    // ── 4. holes: inner wall (darker), then the void; collect the void as the beam's mask; report each visible hole
-    const mask = new Path2D(), seen = [];
-    const th = .07;
-    for (const o of hv) {
-      const sl = st.slit[o.i]; if (o.o <= 0 && sl <= 0) continue;
-      const cv = toView(o.c); if (cv[2] < -Math.sin(Math.max(o.h.a, o.h.b))) continue;      // fully behind
-      const outer = holePts(o.h, o.i, rr, o.o, st), inner = holePts(o.h, o.i, rr * (1 - th), o.o, st);
-      ctx.fillStyle = WALL; ctx.beginPath(); poly(ctx, outer); ctx.fill();
-      ctx.save(); ctx.beginPath(); poly(ctx, outer); ctx.clip(); ctx.fillStyle = VOID; ctx.beginPath(); poly(ctx, inner); ctx.fill(); ctx.restore();
-      const mp = new Path2D(); poly(mp, inner); mask.addPath(mp);
-      const pc = proj(v3.sc(cv, rr)), rad = cam.S * rr * Math.sin((o.h.a + o.h.b) / 2) * clamp(o.o) * clamp(cv[2] * 1.5 + .3);
-      seen.push({ i: o.i, x: pc[0], y: pc[1], r: rad, rmin: cam.S * rr * Math.sin(Math.min(o.h.a, o.h.b)) * clamp(o.o) * clamp(cv[2] * 1.5 + .3), z: cv[2], o: o.o, rank: rank[o.i], path: mp });
+    // struts: spokes from the inner shell to the outer, vibrating like strings on the vocal scope
+    if (st.inner > 0) {
+      IC.strokeStyle = '#D9774F'; IC.lineCap = 'round';
+      for (const sr of struts) { const pts = [], side = v3.norm(v3.cross(sr.d, Math.abs(sr.d[1]) < .9 ? [0, 1, 0] : [1, 0, 0]));
+        for (let k = 0; k <= 14; k++) { const u = k / 14, base = v3.sc(sr.d, lerp(ri, rr * .93, u));
+          const amp = .05 * rr * Math.sin(u * Math.PI * (1 + sr.k % 3)) * ringAt(st.scopeV, sr.k * .9 + u * 2) * (.3 + st.vox);
+          const p = P(v3.add(base, v3.sc(side, amp))); if (p) pts.push(p); }
+        if (pts.length < 2) continue; const dz = pts[pts.length >> 1][2];
+        IC.globalAlpha = clamp(.7 / dz) * .45 * st.inner; IC.lineWidth = Math.max(1, FPX * .006 * rr / dz);
+        IC.beginPath(); IC.moveTo(pts[0][0], pts[0][1]); for (const p of pts) IC.lineTo(p[0], p[1]); IC.stroke(); }
+      IC.globalAlpha = 1;
     }
-    // ── 5. the beam, masked to the voids (it never draws on the skin)
-    if (beamCompose) beamCompose(mask, seen);
-    // ── 6. front spikes and the mark's near half
-    ctx.fillStyle = INK; ctx.beginPath(); for (const [d, len, w] of front) spikeShape(ctx, d, rr, len, w, st); ctx.fill();
-    if (markFront && Math.abs(nz[2]) < .999) { ctx.save(); ctx.globalAlpha = st.mark.amt; if (halfClip(true)) { ctx.fillStyle = INK; ctx.beginPath(); poly(ctx, markFront); ctx.fill(); } ctx.restore(); }
+    // the beam: the film's planes of text and lines, plus a vocal oscilloscope round the inside of every front hole
+    reset(BC); BC.clearRect(0, 0, W, H);
+    const seen = [];
+    for (let i = 0; i < NH; i++) { if (st.open[i] <= .05) continue; const cv = toView(holes[i].c);
+      if (!inside && cv[2] * rr < z0) continue; const pc = P(v3.sc(holes[i].c, rr)); if (!pc) continue;
+      seen.push({ i, x: pc[0], y: pc[1], z: cv[2], dz: pc[2], r: FPX * rr * Math.sin((holes[i].a + holes[i].b) / 2 * cap[i]) * st.open[i] / pc[2] });
+      if (!inside && st.rimScope > 0) {
+        const pts = holePts(holes[i], i, rr * .97, st, 'front', z0 * .97, 64, th => .8 + .1 * ringAt(st.scopeV, th + i));
+        if (pts.length > 3) { BC.globalAlpha = .38 * st.rimScope; BC.strokeStyle = ORG; BC.lineWidth = Math.max(1, 3 / pc[2]); BC.beginPath(); poly(BC, pts); BC.stroke(); BC.globalAlpha = 1; }
+      }
+    }
+    const api = { plane: (c, e1, e2, unit) => plane(BC, c, e1, e2, unit), P, toView, rr, inside, seen, holes, cap,
+      holePlane: (i, depth, unit) => { const h = holes[i], ax = h.a >= h.b ? h.e1 : h.e2, ay = h.a >= h.b ? h.e2 : v3.sc(h.e1, -1);
+        return plane(BC, v3.sc(h.c, rr * (1 - depth)), ax, ay, unit); },
+      holeUnit: (i, depth = .12) => rr * (1 - depth) * Math.sin(Math.min(holes[i].a, holes[i].b) * cap[i]) * .9 / 500 };
+    if (hooks && hooks.beam) hooks.beam(BC, api);
+    reset(BC);
+    IC.globalCompositeOperation = 'lighter'; IC.filter = 'blur(9px)'; IC.globalAlpha = .9; IC.drawImage(Bc, 0, 0);
+    IC.filter = 'none'; IC.globalAlpha = 1; IC.drawImage(Bc, 0, 0); IC.globalCompositeOperation = 'source-over';
+    IC.restore();
+    ctx.drawImage(I, 0, 0);
+    if (!inside) {
+      // ── 4. the holes' inner walls (the shell's thickness), under 5. the front shell with its holes cut out
+      reset(WC); WC.clearRect(0, 0, W, H); reset(SC); SC.clearRect(0, 0, W, H);
+      SC.fillStyle = INK; limbPath(SC); SC.fill(); SC.globalCompositeOperation = 'destination-out';
+      for (let i = 0; i < NH; i++) { if (st.open[i] <= 0 && st.slit[i] <= 0) continue; const cv = toView(holes[i].c); if (cv[2] * rr < z0 - Math.sin(Math.max(holes[i].a, holes[i].b))) continue;
+        const outer = holePts(holes[i], i, rr, st, 'front', z0), inner = holePts(holes[i], i, rr * .93, st, 'front', z0 * .93);
+        if (outer.length < 3) continue;
+        SC.beginPath(); poly(SC, outer); SC.fill();
+        WC.globalCompositeOperation = 'source-over'; WC.fillStyle = WALL; WC.beginPath(); poly(WC, outer); WC.fill();
+        if (inner.length > 2) { WC.globalCompositeOperation = 'destination-out'; WC.beginPath(); poly(WC, inner); WC.fill(); } }
+      reset(WC); reset(SC);
+      ctx.save(); limbPath(ctx); ctx.clip(); ctx.drawImage(Wc, 0, 0); ctx.restore();
+      ctx.drawImage(Sc, 0, 0);
+      // ── 6. front spikes
+      ctx.fillStyle = INK; ctx.beginPath(); for (const [d, len, w, bd] of front) spikeShape(ctx, d, rr, len, w, bd); ctx.fill();
+    }
+    // the flat mark on top (title + opening; face-on, so its plane never needs a depth split)
+    if (markPts && markPts.length > 3) { ctx.save(); ctx.globalAlpha = st.mark.amt; ctx.fillStyle = INK; ctx.beginPath(); poly(ctx, markPts); ctx.fill(); ctx.restore(); }
     return seen;
   }
-  const smooth01 = x => { x = clamp(x); return x * x * (3 - 2 * x); };
-  return { L, draw, group, rank, bySize, proj: v => proj(toView(v)), toView: v => toView(v), spikes };
+  return { L, draw, group, rank, bySize, cap, spikes, P: w => P(w) };
 })();
