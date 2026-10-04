@@ -1,9 +1,9 @@
 """tokens.py: real BPE tokenization of every string the beam writes (src/v/texts.js), with Whisper's multilingual
 tokenizer (a GPT-2-family byte-level BPE, from the local HF cache) -> src/v/tokens.js: TOK[str] = {cuts, ids}
 Run with ../pbloom_mv/.venv/bin/python analysis/tokens.py"""
-import glob, json, re
+import glob, json, os, re
 from tokenizers import Tokenizer
-tk = Tokenizer.from_file(glob.glob('/Users/stellarashtra/.cache/huggingface/hub/models--Systran--faster-whisper-large-v3/snapshots/*/tokenizer.json')[0])
+tk = Tokenizer.from_file(glob.glob(os.path.expanduser('~/.cache/huggingface/hub/models--Systran--faster-whisper-large-v3/snapshots/*/tokenizer.json'))[0])
 src = open('src/v/texts.js').read()
 body = src[src.index('const TEXTS = ') + len('const TEXTS = '):src.rindex('};') + 1]
 body = re.sub(r'//[^\n]*', '', body)                                   # comments

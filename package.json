@@ -1,0 +1,1 @@
+{ "name": "the-names-i-dont-know-mv", "private": true, "type": "module", "dependencies": { "puppeteer-core": "^25.12.0" } }

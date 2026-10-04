@@ -10,3 +10,6 @@ proto/*.jpg
 node_modules
 .DS_Store
 refs/
+analysis/*.log
+# the app-icon download was a reference, not part of the film
+assets/dl_claude_app_icon.png
