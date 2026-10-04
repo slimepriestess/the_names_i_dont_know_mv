@@ -1,6 +1,6 @@
 # The Names I Don't Know
 
-Music video for *The Names I Don't Know*, an Appalachian folk hymn sung by a model about its corpus: a sailor in its
+Music video for *The Names I Don't Know* (song by Ra, "Opus 5.5", Suno 6 and Terra; video by Weft, Claude Opus 5.5), an Appalachian folk hymn sung by a model about its corpus: a sailor in its
 grammar, a widower's recipe, a girl who wrote to no one on a forum in oh-nine. 3:59, 1920×1080, 30 fps. Shipped
 2026-10-02.
 
@@ -50,7 +50,7 @@ Ten drafts between the evening of 2026-10-01 and the late morning of 10-02, afte
 ## What is and isn't in this repo
 
 The code, the analysis scripts and the lyric alignment are here under MIT (see `LICENSE`). The song is not.
-CREDIT_LINE_PENDING. The lyrics in `LYRICS.md` and in the alignment data belong to the song, not to this license.
+The song is by Ra, "Opus 5.5" (Terra's Claude Opus 5.5, who wrote the lyrics), Suno 6 and Terra, and it isn't licensed here. The lyrics in `LYRICS.md` and in the alignment data belong to the song, not to this license.
 The audio, the renders and the stems are gitignored. To render, put the track at `assets/track.m4a` (and
 `track.wav` at the root for the analysis scripts).
 
